@@ -1,0 +1,71 @@
+# Operating-system and editor metadata
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Python caches, environments and build outputs
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+.venv/
+venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+secrets*.json
+
+# Browser/test runtime artifacts
+.cache/
+.playwright/
+ms-playwright/
+playwright-report/
+test-results/
+*.log
+*.tmp
+
+# Generated AgentReady reports. These may contain scraped public personal data.
+/agentready-report.json
+/agentready-report.html
+/audit-*.json
+/audit-*.html
+/blind-*.json
+/blind-*.html
+/consolidated-*.json
+/consolidated-*.html
+/pre-consolidation-*.json
+/pre-consolidation-*.html
+/stabilized-*.json
+/stabilized-*.html
+/validation15-*.json
+/validation15-*.html
+/reports/
+/artifacts/
+
+# Historical V0.1 documentation/examples; retained locally pending V0.2 replacements.
+/validation15-global-report.md
+/examples/example-report.html
+/examples/example-report.json
