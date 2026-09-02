@@ -3,12 +3,14 @@ import test from "node:test";
 
 import { auditPublicPage, createRendererFromEnv, EvidenceState, inspectHtml, isBlockedHostname, isPrivateIp, validatePublicUrl } from "../netlify/functions/lib/audit-core.mjs";
 import auditHandler from "../netlify/functions/audit.mjs";
-import { nextMonitoringState } from "../web/monitoring.js";
+import { isMonitoringComparable, nextMonitoringState } from "../web/monitoring.js";
 import { toWebMcpResult } from "../web/webmcp.js";
 
 const commercialPage = `<!doctype html><html><head><title>Acme Workshop</title><meta name="description" content="Custom furniture for homes and offices"><link rel="canonical" href="https://example.test/services"></head><body><header><h1>Custom furniture service</h1></header><main><h2>Furniture consultation</h2><p>We design and build furniture. From 90 € with delivery in Europe. Visa accepted.</p><a href="/quote">Request a quote</a><h2>How we work</h2><p>Tell us about your project and we will respond with a tailored proposal.</p></main></body></html>`;
 const thinShell = `<!doctype html><html><head><title>App</title><script src="/runtime.js"></script><script src="/main.js"></script><script src="/vendor.js"></script><script src="/chunk-a.js"></script><script src="/chunk-b.js"></script></head><body><div id="root"></div></body></html>`;
 const javascriptRequired = `<!doctype html><html><head><title>JavaScript is disabled</title></head><body><p>JavaScript is disabled. Please enable JavaScript to continue.</p></body></html>`;
+const incompleteRenderedPage = `<!doctype html><html><head><title>Acme</title><meta name="description" content="A long enough description of the company and the work it does for its customers."></head><body><h1>Acme</h1><h2>About our company</h2><p>We help customers with carefully designed work and thoughtful advice across a range of projects.</p><h2>Contact</h2><p>Send a message to our team for more information.</p><a href="mailto:hello@example.test">Email us</a></body></html>`;
+const changedCommercialPage = commercialPage.replace("Visa accepted.", "");
 const publicResolver = async () => [{ address: "93.184.216.34", family: 4 }];
 const htmlResponse = (html) => new Response(html, { status: 200, headers: { "content-type": "text/html" } });
 const successfulRenderer = (html = commercialPage, finalUrl = "https://example.test/rendered") => ({ renderPage: async () => ({ status: "success", rendered: true, html, finalUrl, metadata: { provider: "test-renderer", timing_ms: 12 } }) });
@@ -219,6 +221,7 @@ test("Cloudflare renderer adapter uses bounded content acquisition and validates
   assert.equal(result.finalUrl, "https://example.test/rendered");
   assert.match(request.url, /browser-rendering\/content$/);
   assert.deepEqual(JSON.parse(request.init.body).rejectResourceTypes, ["image", "media", "font"]);
+  assert.equal(JSON.parse(request.init.body).gotoOptions.waitUntil, "networkidle2");
   assert.equal(request.init.headers.authorization, "Bearer test-token");
 });
 
@@ -236,14 +239,48 @@ test("a static-limited then successful rendered audit is stored as the comparabl
     fetchImpl: async () => htmlResponse(thinShell), resolver: publicResolver,
     renderer: successfulRenderer(),
   });
-  const priorScored = { current: { url: "https://example.test/app", score: 62, acquisition: "full", readiness_state: "observed", at: "2026-01-01T00:00:00.000Z" } };
+  const priorScored = { current: { url: "https://example.test/app", score: 62, acquisition: "full", readiness_state: "observed", monitoring_eligible: true, at: "2026-01-01T00:00:00.000Z" } };
   const state = nextMonitoringState(priorScored, finalAudit, "2026-01-02T00:00:00.000Z");
   assert.equal(finalAudit.acquisition.method, "rendered");
   assert.equal(finalAudit.readiness.state, "observed");
   assert.equal(state.current.acquisition, "full");
   assert.equal(state.current.readiness_state, "observed");
+  assert.equal(state.current.monitoring_eligible, true);
   assert.ok(Number.isFinite(state.current.score));
   assert.equal(state.previous.score, 62);
+});
+
+test("equivalent rendered acquisitions are equally scored and monitoring-comparable", async () => {
+  const dependencies = { fetchImpl: async () => htmlResponse(thinShell), resolver: publicResolver, renderer: successfulRenderer() };
+  const first = await auditPublicPage("https://example.test/app", dependencies);
+  const second = await auditPublicPage("https://example.test/app", dependencies);
+  const firstState = nextMonitoringState(null, first, "2026-01-01T00:00:00.000Z");
+  const secondState = nextMonitoringState(firstState, second, "2026-01-02T00:00:00.000Z");
+  assert.deepEqual(second.scores, first.scores);
+  assert.equal(first.acquisition.monitoring_eligible, true);
+  assert.equal(second.acquisition.monitoring_eligible, true);
+  assert.equal(isMonitoringComparable(secondState.current, secondState.previous), true);
+});
+
+test("thin rendered evidence is scored but cannot create a false monitoring degradation", async () => {
+  const strongAudit = await auditPublicPage("https://example.test/app", { fetchImpl: async () => htmlResponse(thinShell), resolver: publicResolver, renderer: successfulRenderer() });
+  const thinAudit = await auditPublicPage("https://example.test/app", { fetchImpl: async () => htmlResponse(thinShell), resolver: publicResolver, renderer: successfulRenderer(incompleteRenderedPage) });
+  const strongState = nextMonitoringState(null, strongAudit, "2026-01-01T00:00:00.000Z");
+  const thinState = nextMonitoringState(strongState, thinAudit, "2026-01-02T00:00:00.000Z");
+  assert.ok(thinState.current.score < strongState.current.score);
+  assert.equal(thinAudit.acquisition.monitoring_eligible, false);
+  assert.equal(isMonitoringComparable(thinState.current, thinState.previous), false);
+});
+
+test("changed but sufficiently complete rendered evidence still produces a real monitoring delta", async () => {
+  const firstAudit = await auditPublicPage("https://example.test/app", { fetchImpl: async () => htmlResponse(thinShell), resolver: publicResolver, renderer: successfulRenderer(commercialPage) });
+  const changedAudit = await auditPublicPage("https://example.test/app", { fetchImpl: async () => htmlResponse(thinShell), resolver: publicResolver, renderer: successfulRenderer(changedCommercialPage) });
+  const firstState = nextMonitoringState(null, firstAudit, "2026-01-01T00:00:00.000Z");
+  const changedState = nextMonitoringState(firstState, changedAudit, "2026-01-02T00:00:00.000Z");
+  assert.equal(firstAudit.acquisition.monitoring_eligible, true);
+  assert.equal(changedAudit.acquisition.monitoring_eligible, true);
+  assert.equal(isMonitoringComparable(changedState.current, changedState.previous), true);
+  assert.ok(changedState.current.score < changedState.previous.score);
 });
 
 test("limited recommendation uses the agent-accessible wording and grounded context", () => {

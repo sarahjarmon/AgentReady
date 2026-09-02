@@ -11,7 +11,8 @@ export const EvidenceState = Object.freeze({
 const MAX_BYTES = 750_000;
 const TIMEOUT_MS = 6_000;
 const MAX_REDIRECTS = 3;
-const RENDER_TIMEOUT_MS = 9_000;
+const RENDER_TIMEOUT_MS = 11_000;
+const RENDER_NAVIGATION_TIMEOUT_MS = 9_000;
 const MAX_RENDERED_BYTES = 1_000_000;
 const BLOCKED_STATUS = new Set([401, 403, 429, 451]);
 const RENDERER_BLOCKED_STATUS = new Set([401, 403, 429, 451]);
@@ -171,7 +172,7 @@ export function createRendererFromEnv(env = process.env, dependencies = {}) {
           headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
           body: JSON.stringify({
             url: target.toString(),
-            gotoOptions: { waitUntil: "domcontentloaded", timeout: Math.min(options.navigationTimeoutMs || 6_000, RENDER_TIMEOUT_MS) },
+            gotoOptions: { waitUntil: "networkidle2", timeout: Math.min(options.navigationTimeoutMs || RENDER_NAVIGATION_TIMEOUT_MS, RENDER_TIMEOUT_MS) },
             rejectResourceTypes: ["image", "media", "font"],
           }),
         });
@@ -237,6 +238,16 @@ function blockedResult(targetUrl, httpStatus, reason, acquisitionDetails = {}) {
   };
 }
 
+function renderedMonitoringEligibility(method, capabilityValues) {
+  if (method !== "rendered") return { eligible: true, reason: null };
+  const commercialEvidenceIsSufficient = (capabilityValues.offer && capabilityValues.conversion)
+    || (capabilityValues.conversion && (capabilityValues.pricing || capabilityValues.availability || capabilityValues.payment || capabilityValues.geography))
+    || (capabilityValues.offer && (capabilityValues.pricing || capabilityValues.availability || capabilityValues.payment || capabilityValues.geography));
+  return commercialEvidenceIsSufficient
+    ? { eligible: true, reason: null }
+    : { eligible: false, reason: "The rendered page did not retain enough independent commercial signals to support a monitoring comparison." };
+}
+
 export function inspectHtml(html, targetUrl, options = {}) {
   const acquisition = assessAcquisition(html);
   const method = options.method || "static";
@@ -262,6 +273,7 @@ export function inspectHtml(html, targetUrl, options = {}) {
     identity: Boolean(title || headings[0]), offer: offerObserved, pricing: Boolean(prices.length), conversion: journey !== "unknown",
     availability: AVAILABILITY_WORDS.test(acquisition.visible), payment: PAYMENT_WORDS.test(acquisition.visible), geography: AREA_WORDS.test(acquisition.visible),
   };
+  const monitoringEligibility = renderedMonitoringEligibility(method, capabilityValues);
   const evidence = {
     acquisition: acquisition.reasons.map((reason) => compactEvidence("Limited static acquisition", reason)),
     visibility: [compactEvidence("HTML page fetched", `HTTP page fetched from ${targetUrl}`), ...(title ? [compactEvidence("Page title", title)] : []), ...(description ? [compactEvidence("Meta description", description)] : []), ...(sameHostCanonical ? [compactEvidence("Same-host canonical URL", canonical)] : [])],
@@ -286,7 +298,7 @@ export function inspectHtml(html, targetUrl, options = {}) {
   }
   const scores = { visibility, understanding: limited ? null : understanding, buyability: limited ? null : buyability };
   return {
-    status: limited ? "limited" : "complete", acquisition: { status: acquisition.status, method, renderer: options.renderer || null, render_attempted: Boolean(options.renderer), rendering_recommended: Boolean(acquisition.renderable && limited), explanation: limited ? "The acquired response may not represent the user-visible page. Missing capabilities are marked as insufficient evidence, not absent." : method === "rendered" ? "A rendered public page was analyzed after static acquisition appeared incomplete." : "The static HTML contained enough visible content for this bounded public-page audit.", reasons: acquisition.reasons },
+    status: limited ? "limited" : "complete", acquisition: { status: acquisition.status, method, renderer: options.renderer || null, render_attempted: Boolean(options.renderer), rendering_recommended: Boolean(acquisition.renderable && limited), monitoring_eligible: !limited && monitoringEligibility.eligible, monitoring_reason: limited ? "This audit has insufficient evidence for monitoring comparison." : monitoringEligibility.reason, explanation: limited ? "The acquired response may not represent the user-visible page. Missing capabilities are marked as insufficient evidence, not absent." : method === "rendered" ? "A rendered public page was analyzed after static acquisition appeared incomplete." : "The static HTML contained enough visible content for this bounded public-page audit.", reasons: acquisition.reasons },
     target_url: targetUrl, audit_scope: AUDIT_SCOPE, scores, readiness: { observed_readiness: limited ? null : Math.round((visibility + understanding + buyability) / 3), state: limited ? "insufficient_evidence" : "observed" }, score_status: limited ? "insufficient_evidence" : "meaningful", capabilities, evidence, actions: actionsOut.slice(0, 4), summary: { title: title || "unknown", headings: headings.slice(0, 5), prices, commercial_actions: actions.values.slice(0, 5), journey },
   };
 }
@@ -314,7 +326,7 @@ export async function auditPublicPage(url, dependencies = {}) {
     return { ...staticResult, http_status: page.status, final_url: page.finalUrl };
   }
   const renderer = dependencies.renderer || createRendererFromEnv(dependencies.env || process.env, dependencies);
-  const rendered = await renderer.renderPage(page.finalUrl, { timeoutMs: RENDER_TIMEOUT_MS, navigationTimeoutMs: 6_000 });
+  const rendered = await renderer.renderPage(page.finalUrl, { timeoutMs: RENDER_TIMEOUT_MS, navigationTimeoutMs: RENDER_NAVIGATION_TIMEOUT_MS });
   if (rendered.status === "success" && rendered.rendered && typeof rendered.html === "string") {
     let finalUrl;
     try { finalUrl = (await assertSafeRendererNavigation(rendered.finalUrl || page.finalUrl, dependencies.resolver || lookup)).toString(); }

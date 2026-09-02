@@ -1,5 +1,5 @@
 import { registerAuditTool } from "./webmcp.js";
-import { nextMonitoringState } from "./monitoring.js";
+import { isMonitoringComparable, nextMonitoringState } from "./monitoring.js";
 
 const form = document.querySelector("#audit-form");
 const urlInput = document.querySelector("#url");
@@ -74,11 +74,11 @@ function renderMonitoring() {
   const mount = document.querySelector("#monitoring-content");
   if (!data?.current) { mount.innerHTML = "<p class=\"muted\">Your latest audit will be stored only in this browser.</p>"; return; }
   const current = data.current;
-  const comparable = data.previous && data.previous.url === current.url && Number.isFinite(current.score) && Number.isFinite(data.previous.score);
+  const comparable = isMonitoringComparable(current, data.previous);
   const delta = comparable ? current.score - data.previous.score : null;
-  const alert = current.score !== null && (current.score < 60 || (delta !== null && delta < 0));
-  const message = current.score === null ? "Limited or blocked evidence: this audit is not compared as a readiness score." : alert ? "Attention: the score is below 60 or has declined since the prior audit." : "No local monitoring alert from the latest comparable audit.";
-  mount.innerHTML = `<div class="monitor-grid"><div><span>Latest observed readiness</span><strong>${current.score ?? "—"}</strong></div><div><span>Previous score</span><strong>${comparable ? data.previous.score : "—"}</strong></div><div><span>Change</span><strong class="${delta !== null && delta < 0 ? "down" : ""}">${delta === null ? "—" : `${delta > 0 ? "+" : ""}${delta}`}</strong></div></div><p class="monitor-note ${alert || current.score === null ? "alert" : ""}">${message} Stored locally on ${esc(new Date(current.at).toLocaleString())}.</p>`;
+  const alert = current.monitoring_eligible && (current.score < 60 || (delta !== null && delta < 0));
+  const message = current.score === null ? "Limited or blocked evidence: this audit is not compared as a readiness score." : !current.monitoring_eligible ? (current.monitoring_reason || "The rendered evidence is not sufficiently complete for monitoring comparison.") : alert ? "Attention: the score is below 60 or has declined since the prior audit." : "No local monitoring alert from the latest comparable audit.";
+  mount.innerHTML = `<div class="monitor-grid"><div><span>Latest observed readiness</span><strong>${current.score ?? "—"}</strong></div><div><span>Previous score</span><strong>${comparable ? data.previous.score : "—"}</strong></div><div><span>Change</span><strong class="${delta !== null && delta < 0 ? "down" : ""}">${delta === null ? "—" : `${delta > 0 ? "+" : ""}${delta}`}</strong></div></div><p class="monitor-note ${alert || current.score === null || !current.monitoring_eligible ? "alert" : ""}">${message} Stored locally on ${esc(new Date(current.at).toLocaleString())}.</p>`;
 }
 
 form.addEventListener("submit", async (event) => {
