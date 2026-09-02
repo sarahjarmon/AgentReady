@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { auditPublicPage, createRendererFromEnv, EvidenceState, inspectHtml, isBlockedHostname, isPrivateIp, validatePublicUrl } from "../netlify/functions/lib/audit-core.mjs";
 import auditHandler from "../netlify/functions/audit.mjs";
+import { aiReadinessScore, primaryFinding, reportAccessState } from "../web/commercial.js";
 import { isMonitoringComparable, nextMonitoringState } from "../web/monitoring.js";
 import { toWebMcpResult } from "../web/webmcp.js";
 
@@ -33,6 +34,39 @@ test("normal server-rendered commercial page receives meaningful evidence states
   assert.equal(result.capabilities.conversion.state, EvidenceState.OBSERVED);
   assert.ok(Number.isFinite(result.scores.buyability));
   assert.equal(result.readiness.state, "observed");
+});
+
+test("commercial summary uses only the final observed audit result", () => {
+  const audit = inspectHtml(commercialPage, "https://example.test/services");
+  const finding = primaryFinding(audit);
+  assert.equal(aiReadinessScore(audit), audit.readiness.observed_readiness);
+  assert.equal(finding.title, "No urgent issue observed on this page");
+  assert.match(finding.reason, /bounded audit/i);
+});
+
+test("commercial summary preserves unknown readiness when evidence is insufficient", () => {
+  const audit = inspectHtml(thinShell, "https://example.test/app");
+  assert.equal(aiReadinessScore(audit), null);
+  assert.equal(primaryFinding(audit).title, audit.actions[0].title);
+});
+
+test("Founder Plan and the full report remain hidden before email submission", () => {
+  const state = reportAccessState(false);
+  assert.equal(state.fullReportHidden, true);
+  assert.equal(state.founderOfferHidden, true);
+});
+
+test("valid email submission unlocks the full report and Founder Plan", () => {
+  const state = reportAccessState(true);
+  assert.equal(state.fullReportHidden, false);
+  assert.equal(state.founderOfferHidden, false);
+});
+
+test("a new audit resets previously unlocked commercial report access", () => {
+  assert.equal(reportAccessState(true).founderOfferHidden, false);
+  const stateForNewAudit = reportAccessState(false);
+  assert.equal(stateForNewAudit.fullReportHidden, true);
+  assert.equal(stateForNewAudit.founderOfferHidden, true);
 });
 
 test("product price and purchase CTA are associated as observable commerce", () => {

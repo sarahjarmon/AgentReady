@@ -3,74 +3,96 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta name="description" content="AgentReady: a bounded, evidence-first audit for the agentic web.">
-    <title>AgentReady — WebMCP Challenge demo</title>
+    <meta name="description" content="Find out whether AI agents can find, understand, and act on your business website.">
+    <title>AgentReady — AI website readiness</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <main class="shell">
       <header class="hero">
-        <a class="brand" href="/" aria-label="AgentReady home">Agent<span>Ready</span></a>
-        <p class="eyebrow">WebMCP Challenge demo</p>
-        <h1>Make your business legible<br>to the agents your customers use.</h1>
-        <p class="lede">Run a bounded, evidence-first public-page audit. It measures observable website signals — never actual ChatGPT, Gemini, or Perplexity rankings.</p>
+        <nav class="topbar" aria-label="Primary navigation">
+          <a class="brand" href="/" aria-label="AgentReady home">Agent<span>Ready</span></a>
+        </nav>
+        <div class="hero-copy">
+          <p class="eyebrow">AI website readiness</p>
+          <h1>Is your website ready<br>for AI agents?</h1>
+          <p class="lede">AgentReady checks whether AI agents can find your business, understand what you offer, and take meaningful commercial action.</p>
+        </div>
       </header>
 
       <section class="audit-form panel" aria-labelledby="audit-title">
         <div>
-          <p class="section-kicker">Start an audit</p>
-          <h2 id="audit-title">A public URL in. Clear next actions out.</h2>
+          <p class="section-kicker">Free AI readiness audit</p>
+          <h2 id="audit-title">See what AI agents can — and can't — do on your website.</h2>
+          <p>Enter any public website. Get your core readiness scores before sharing your email.</p>
         </div>
         <form id="audit-form">
-          <label for="url">Website URL</label>
+          <label for="url">Business website URL</label>
           <div class="input-row">
-            <input id="url" name="url" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com" required>
-            <button id="submit" type="submit">Run audit <span aria-hidden="true">→</span></button>
+            <input id="url" name="url" type="url" inputmode="url" autocomplete="url" placeholder="https://yourbusiness.com" required>
+            <button id="submit" type="submit">Run Free Audit <span aria-hidden="true">→</span></button>
           </div>
-          <p class="form-note">One public page · static first, with bounded rendering only when needed · no login, checkout, or form submission.</p>
+          <p class="form-note">One public page · no login, checkout, or form submission.</p>
         </form>
         <p id="error" class="error" role="alert" hidden></p>
       </section>
 
-      <section class="webmcp-status panel" aria-labelledby="webmcp-title">
-        <div class="status-dot" id="webmcp-dot" aria-hidden="true"></div>
-        <div><p class="section-kicker">Agent capability</p><h2 id="webmcp-title">WebMCP</h2><p id="webmcp-message">Checking browser support…</p></div>
-      </section>
-
-      <section id="empty-state" class="empty panel">
-        <p class="section-kicker">The future SaaS view</p>
-        <h2>Score. Actions. Monitoring.</h2>
-        <p>Enter a public URL to populate an evidence-backed snapshot. In a compatible browser, an agent can call the same audit through the real <code>agentready.run_audit</code> WebMCP tool.</p>
+      <section id="empty-state" class="value-strip" aria-label="AgentReady framework">
+        <article><span>01</span><h2>Visibility</h2><p>Can agents reliably find the public signals that identify your business?</p></article>
+        <article><span>02</span><h2>Understanding</h2><p>Can they understand your offers, pricing, and key commercial context?</p></article>
+        <article><span>03</span><h2>Buyability</h2><p>Can they identify a meaningful next step to buy, book, or contact you?</p></article>
       </section>
 
       <div id="results" hidden>
         <section class="results-header">
-          <div><p class="section-kicker">Observed public-page audit</p><h2 id="audited-url">—</h2><p id="acquisition-method" class="method">—</p></div>
+          <div><p class="section-kicker">Your AI readiness snapshot</p><h2 id="audited-url">—</h2><p id="acquisition-method" class="method">—</p></div>
           <p id="audit-scope" class="scope"></p>
         </section>
         <section id="acquisition-notice" class="acquisition panel" hidden aria-live="polite"></section>
 
         <section aria-labelledby="scores-title">
-          <div class="section-heading"><div><p class="section-kicker">01 — Score</p><h2 id="scores-title">What an agent can observe</h2></div><p>Scores are deterministic, per-page, and explainable.</p></div>
-          <div class="score-grid">
-            <article class="score-card"><p>Visibility</p><strong id="visibility-score">—</strong><span>Technical discoverability signals</span></article>
-            <article class="score-card"><p>Understanding</p><strong id="understanding-score">—</strong><span>Identity, offer, price, and structured signals</span></article>
-            <article class="score-card"><p>Buyability</p><strong id="buyability-score">—</strong><span>Observed commercial paths and details</span></article>
+          <div class="section-heading"><div><p class="section-kicker">Your free result</p><h2 id="scores-title">How ready is your website?</h2></div><p>Built from the public evidence observed on this page.</p></div>
+          <div class="score-grid commercial-scores">
+            <article class="score-card readiness-card"><p>AI Readiness</p><strong id="readiness-score">—</strong><span>Overall observed readiness</span></article>
+            <article class="score-card"><p>Visibility</p><strong id="visibility-score">—</strong><span>Can agents find your business?</span></article>
+            <article class="score-card"><p>Understanding</p><strong id="understanding-score">—</strong><span>Can they understand your offer?</span></article>
+            <article class="score-card"><p>Buyability</p><strong id="buyability-score">—</strong><span>Can they take a next step?</span></article>
           </div>
         </section>
 
-        <section class="columns" aria-label="Audit findings">
-          <article class="panel actions"><p class="section-kicker">02 — Actions</p><h2>Highest-priority improvements</h2><ol id="actions-list"></ol></article>
-          <article class="panel evidence"><p class="section-kicker">Evidence</p><h2>Observed, not assumed</h2><div id="evidence-list"></div></article>
+        <section class="primary-finding panel" aria-labelledby="finding-title">
+          <div><p class="section-kicker">Your highest-value finding</p><h2 id="finding-title">—</h2></div>
+          <p id="finding-reason">—</p>
         </section>
 
-        <section class="panel monitoring" aria-labelledby="monitoring-title">
-          <div><p class="section-kicker">03 — Monitoring</p><h2 id="monitoring-title">Track the last observed change</h2></div>
-          <div id="monitoring-content"></div>
+        <section id="report-capture" class="report-capture panel" hidden aria-labelledby="report-title">
+          <div><p class="section-kicker">Next step</p><h2 id="report-title">Get your full AI Readiness Report</h2><p>Enter your email to receive your complete audit and prioritized recommendations.</p></div>
+          <form id="email-form" novalidate>
+            <label for="email">Email address</label>
+            <div class="input-row"><input id="email" name="email" type="email" autocomplete="email" placeholder="you@company.com" required><button type="submit">Send My Free Report</button></div>
+            <p id="email-status" class="form-note" role="status">Email delivery is a beta placeholder. Your address is not stored or sent yet.</p>
+          </form>
+        </section>
+
+        <div id="full-report" hidden>
+          <section class="columns" aria-label="Full audit findings">
+            <article class="panel actions"><p class="section-kicker">Full action plan</p><h2>Prioritized recommendations</h2><ol id="actions-list"></ol></article>
+            <article class="panel evidence"><p class="section-kicker">Evidence</p><h2>Observed, not assumed</h2><div id="evidence-list"></div></article>
+          </section>
+
+          <section class="panel monitoring" aria-labelledby="monitoring-title">
+            <div><p class="section-kicker">Monitoring</p><h2 id="monitoring-title">Track your readiness over time</h2></div>
+            <div id="monitoring-content"></div>
+          </section>
+        </div>
+
+        <section id="founder-offer" class="founder-offer panel" hidden aria-labelledby="founder-title">
+          <div class="founder-copy"><p class="section-kicker">Limited founder offer</p><h2 id="founder-title">Founder Plan</h2><p class="price"><strong>$39</strong><span>/month</span></p><p class="regular-price">Future regular price <s>$49/month</s></p><p>Lock in $39/month for life as one of the first 100 AgentReady founders.</p></div>
+          <div class="founder-includes"><h3>Included from day one</h3><ul><li>Full AI Readiness Report</li><li>Full prioritized Action Plan</li><li>Weekly automatic re-audits</li><li>Monitoring &amp; readiness history</li><li>Alerts when readiness drops</li></ul><button id="founder-cta" type="button">Become a Founder — $39/month</button><p id="founder-status" class="form-note" role="status">Founder checkout is a Stripe placeholder for this beta.</p></div>
         </section>
       </div>
 
-      <footer><p>AgentReady challenge demo · public-page evidence only</p></footer>
+      <footer><p>AgentReady · Evidence-first AI website readiness</p></footer>
     </main>
     <script type="module" src="/app.js"></script>
   </body>

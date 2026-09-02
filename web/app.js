@@ -1,4 +1,5 @@
 import { registerAuditTool } from "./webmcp.js";
+import { aiReadinessScore, primaryFinding, reportAccessState } from "./commercial.js";
 import { isMonitoringComparable, nextMonitoringState } from "./monitoring.js";
 
 const form = document.querySelector("#audit-form");
@@ -7,6 +8,14 @@ const submit = document.querySelector("#submit");
 const errorBox = document.querySelector("#error");
 const results = document.querySelector("#results");
 const emptyState = document.querySelector("#empty-state");
+const reportCapture = document.querySelector("#report-capture");
+const emailForm = document.querySelector("#email-form");
+const emailInput = document.querySelector("#email");
+const emailStatus = document.querySelector("#email-status");
+const fullReport = document.querySelector("#full-report");
+const founderOffer = document.querySelector("#founder-offer");
+const founderCta = document.querySelector("#founder-cta");
+const founderStatus = document.querySelector("#founder-status");
 const storageKey = "agentready.webmcp.last-audit.v1";
 
 function esc(value) {
@@ -17,8 +26,9 @@ function esc(value) {
 
 function setStatus(kind, message) {
   const dot = document.querySelector("#webmcp-dot");
-  dot.dataset.status = kind;
-  document.querySelector("#webmcp-message").textContent = message;
+  if (dot) dot.dataset.status = kind;
+  const statusMessage = document.querySelector("#webmcp-message");
+  if (statusMessage) statusMessage.textContent = message;
 }
 
 function showError(message) {
@@ -27,6 +37,12 @@ function showError(message) {
 }
 
 function hideError() { errorBox.hidden = true; errorBox.textContent = ""; }
+
+function setReportAccess(emailSubmitted) {
+  const state = reportAccessState(emailSubmitted);
+  fullReport.hidden = state.fullReportHidden;
+  founderOffer.hidden = state.founderOfferHidden;
+}
 
 async function runAudit(url) {
   const response = await fetch("/.netlify/functions/audit", {
@@ -42,9 +58,19 @@ async function runAudit(url) {
 function render(result) {
   emptyState.hidden = true;
   results.hidden = false;
+  reportCapture.hidden = false;
+  setReportAccess(false);
+  emailForm.reset();
+  emailStatus.textContent = "Email delivery is a beta placeholder. Your address is not stored or sent yet.";
+  founderStatus.textContent = "Founder checkout is a Stripe placeholder for this beta.";
   document.querySelector("#audited-url").textContent = result.final_url || result.target_url;
   document.querySelector("#audit-scope").textContent = result.audit_scope;
   document.querySelector("#acquisition-method").textContent = result.acquisition?.method === "rendered" ? "Rendered page analyzed" : "Public page analyzed";
+  const readiness = aiReadinessScore(result);
+  document.querySelector("#readiness-score").textContent = Number.isFinite(readiness) ? readiness : "—";
+  const finding = primaryFinding(result);
+  document.querySelector("#finding-title").textContent = finding.title;
+  document.querySelector("#finding-reason").textContent = finding.reason;
   for (const name of ["visibility", "understanding", "buyability"]) {
     const value = result.scores[name];
     const score = document.querySelector(`#${name}-score`);
@@ -86,7 +112,21 @@ form.addEventListener("submit", async (event) => {
   submit.disabled = true; submit.textContent = "Auditing…";
   try { await runAudit(urlInput.value.trim()); }
   catch (error) { showError(error instanceof Error ? error.message : "The audit could not be completed."); }
-  finally { submit.disabled = false; submit.innerHTML = "Run audit <span aria-hidden=\"true\">→</span>"; }
+  finally { submit.disabled = false; submit.innerHTML = "Run Free Audit <span aria-hidden=\"true\">→</span>"; }
+});
+
+// Placeholder only: no email is persisted or transmitted until a consented delivery service is connected.
+emailForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (!emailInput.validity.valid) { emailStatus.textContent = "Enter a valid email address to continue."; emailInput.focus(); return; }
+  emailStatus.textContent = "Your report is unlocked below. Email delivery will be connected in a future beta update.";
+  setReportAccess(true);
+  fullReport.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+// Placeholder only: Stripe checkout is intentionally not connected in this branch.
+founderCta.addEventListener("click", () => {
+  founderStatus.textContent = "Founder checkout will be connected to Stripe before paid access opens.";
 });
 
 renderMonitoring();
