@@ -1,13 +1,19 @@
 function compactResult(result) {
   return {
     status: result.status,
+    acquisition: result.acquisition,
     target_url: result.target_url,
     scores: result.scores,
+    readiness: result.readiness,
+    score_status: result.score_status,
+    capabilities: result.capabilities,
     actions: result.actions,
     evidence: result.evidence,
     audit_scope: result.audit_scope,
   };
 }
+
+export const toWebMcpResult = compactResult;
 
 export async function registerAuditTool(runAudit, setStatus) {
   const context = document.modelContext;

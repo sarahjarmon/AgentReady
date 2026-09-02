@@ -45,6 +45,16 @@ This uses the WebMCP imperative registration model; it is not a simulated button
 
 The challenge Function is **not the complete historical Python AgentReady engine**. It is a separate, intentionally bounded one-page demo lane: it fetches one public HTML page, does not execute remote JavaScript, does not crawl, does not submit a form, and only returns facts supported by the observed page. The Python CLI remains the richer prototype engine.
 
+### Acquisition and evidence semantics
+
+Each audit labels page acquisition as one of:
+
+- `full` — the static HTML contains enough visible material for this bounded page audit;
+- `limited` — the response looks like a JavaScript shell, a JavaScript-required page, or otherwise lacks representative visible content;
+- `blocked` — the response is an access-control, anti-bot, or rate-limit page.
+
+Each capability is then `OBSERVED`, `NOT_OBSERVED`, or `INSUFFICIENT_EVIDENCE`. A missing signal is only treated as `NOT_OBSERVED` after full acquisition. With limited or blocked acquisition, the demo leaves commercial pillar scores blank rather than presenting a misleading zero, and recommends making key information available in server-rendered HTML or validated structured data.
+
 ## Safety boundaries of the demo endpoint
 
 The Function accepts only unauthenticated `http`/`https` URLs. It rejects localhost, IP literals, common private/link-local ranges, and obvious internal hostnames; checks DNS resolution before each request; uses a six-second request timeout; limits the response to 750 KB; manually follows at most three redirects; accepts HTML only; and never runs the target site’s JavaScript.
@@ -91,8 +101,8 @@ The CLI crawler is bounded, respects `robots.txt`, and starts with HTTP before u
 ## Known MVP limitations
 
 - The challenge audit reads only one public HTML page and is not a site-wide crawl.
-- Its commercial extraction is conservative and intentionally returns `unknown` when the page does not prove a fact.
-- JavaScript-rendered content, authenticated content, checkout flows, PDFs, images, APIs, and third-party booking/payment flows are out of scope.
+- Its commercial extraction is conservative and intentionally marks unproven capabilities as `NOT_OBSERVED` or `INSUFFICIENT_EVIDENCE` according to acquisition quality.
+- JavaScript-rendered content, authenticated content, checkout flows, PDFs, images, APIs, and third-party booking/payment flows are out of scope. A Chromium/Playwright fallback is deliberately deferred: it would add a large native browser dependency, cold-start and timeout risk, and a wider SSRF attack surface to this lightweight Netlify Function.
 - The monitoring panel is browser-local, not shared, scheduled, or persistent across devices.
 - WebMCP availability depends on the active browser implementation and agent integration.
 - Neither audit lane measures real AI search ranking, citations, traffic, conversion, or agent purchase completion.

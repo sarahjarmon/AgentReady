@@ -16,6 +16,7 @@ function esc(value) {
 
 function totalScore(result) {
   const { visibility, understanding, buyability } = result.scores;
+  if (![visibility, understanding, buyability].every(Number.isFinite)) return null;
   return Math.round((visibility + understanding + buyability) / 3);
 }
 
@@ -48,7 +49,18 @@ function render(result) {
   results.hidden = false;
   document.querySelector("#audited-url").textContent = result.final_url || result.target_url;
   document.querySelector("#audit-scope").textContent = result.audit_scope;
-  for (const name of ["visibility", "understanding", "buyability"]) document.querySelector(`#${name}-score`).textContent = result.scores[name];
+  for (const name of ["visibility", "understanding", "buyability"]) {
+    const value = result.scores[name];
+    const score = document.querySelector(`#${name}-score`);
+    score.textContent = Number.isFinite(value) ? value : "—";
+    score.dataset.limited = Number.isFinite(value) ? "false" : "true";
+  }
+  const acquisition = document.querySelector("#acquisition-notice");
+  const isFull = result.acquisition?.status === "full";
+  acquisition.hidden = isFull;
+  if (!isFull) {
+    acquisition.innerHTML = `<p class="section-kicker">${esc(result.acquisition?.status || "limited")} evidence</p><h2>${esc(result.acquisition?.status === "blocked" ? "This response cannot be audited reliably" : "This page needs more observable evidence")}</h2><p>${esc(result.acquisition?.explanation || "The audit could not establish enough evidence.")}</p>${result.acquisition?.reasons?.length ? `<ul>${result.acquisition.reasons.map((reason) => `<li>${esc(reason)}</li>`).join("")}</ul>` : ""}`;
+  }
   const actions = result.actions.length ? result.actions.map((item) => `<li><span class="priority ${esc(item.priority)}">${esc(item.priority)}</span><strong>${esc(item.title)}</strong><p>${esc(item.reason)}</p></li>`).join("") : "<li><strong>No missing signal was prioritized in this bounded page audit.</strong></li>";
   document.querySelector("#actions-list").innerHTML = actions;
   const groups = Object.entries(result.evidence).map(([group, evidence]) => `<section><h3>${esc(group)}</h3>${evidence.length ? `<ul>${evidence.map((item) => `<li><strong>${esc(item.label)}</strong><span>${esc(item.excerpt)}</span></li>`).join("")}</ul>` : "<p class=\"muted\">No supporting signal observed.</p>"}</section>`).join("");
@@ -58,7 +70,7 @@ function render(result) {
 
 function saveMonitoring(result) {
   const now = new Date().toISOString();
-  const current = { url: result.target_url, score: totalScore(result), scores: result.scores, at: now };
+  const current = { url: result.target_url, score: totalScore(result), scores: result.scores, acquisition: result.acquisition?.status || "unknown", at: now };
   const previous = JSON.parse(localStorage.getItem(storageKey) || "null");
   localStorage.setItem(storageKey, JSON.stringify({ current, previous: previous?.current || null }));
 }
@@ -68,10 +80,11 @@ function renderMonitoring() {
   const mount = document.querySelector("#monitoring-content");
   if (!data?.current) { mount.innerHTML = "<p class=\"muted\">Your latest audit will be stored only in this browser.</p>"; return; }
   const current = data.current;
-  const comparable = data.previous && data.previous.url === current.url;
+  const comparable = data.previous && data.previous.url === current.url && Number.isFinite(current.score) && Number.isFinite(data.previous.score);
   const delta = comparable ? current.score - data.previous.score : null;
-  const alert = current.score < 60 || (delta !== null && delta < 0);
-  mount.innerHTML = `<div class="monitor-grid"><div><span>Latest observed readiness</span><strong>${current.score}</strong></div><div><span>Previous score</span><strong>${comparable ? data.previous.score : "—"}</strong></div><div><span>Change</span><strong class="${delta !== null && delta < 0 ? "down" : ""}">${delta === null ? "—" : `${delta > 0 ? "+" : ""}${delta}`}</strong></div></div><p class="monitor-note ${alert ? "alert" : ""}">${alert ? "Attention: the score is below 60 or has declined since the prior audit." : "No local monitoring alert from the latest comparable audit."} Stored locally on ${esc(new Date(current.at).toLocaleString())}.</p>`;
+  const alert = current.score !== null && (current.score < 60 || (delta !== null && delta < 0));
+  const message = current.score === null ? "Limited or blocked evidence: this audit is not compared as a readiness score." : alert ? "Attention: the score is below 60 or has declined since the prior audit." : "No local monitoring alert from the latest comparable audit.";
+  mount.innerHTML = `<div class="monitor-grid"><div><span>Latest observed readiness</span><strong>${current.score ?? "—"}</strong></div><div><span>Previous score</span><strong>${comparable ? data.previous.score : "—"}</strong></div><div><span>Change</span><strong class="${delta !== null && delta < 0 ? "down" : ""}">${delta === null ? "—" : `${delta > 0 ? "+" : ""}${delta}`}</strong></div></div><p class="monitor-note ${alert || current.score === null ? "alert" : ""}">${message} Stored locally on ${esc(new Date(current.at).toLocaleString())}.</p>`;
 }
 
 form.addEventListener("submit", async (event) => {
