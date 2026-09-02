@@ -231,6 +231,21 @@ test("a limited audit replaces stale local readiness rather than inheriting it",
   assert.equal(state.current.readiness_state, "insufficient_evidence");
 });
 
+test("a static-limited then successful rendered audit is stored as the comparable final score", async () => {
+  const finalAudit = await auditPublicPage("https://example.test/app", {
+    fetchImpl: async () => htmlResponse(thinShell), resolver: publicResolver,
+    renderer: successfulRenderer(),
+  });
+  const priorScored = { current: { url: "https://example.test/app", score: 62, acquisition: "full", readiness_state: "observed", at: "2026-01-01T00:00:00.000Z" } };
+  const state = nextMonitoringState(priorScored, finalAudit, "2026-01-02T00:00:00.000Z");
+  assert.equal(finalAudit.acquisition.method, "rendered");
+  assert.equal(finalAudit.readiness.state, "observed");
+  assert.equal(state.current.acquisition, "full");
+  assert.equal(state.current.readiness_state, "observed");
+  assert.ok(Number.isFinite(state.current.score));
+  assert.equal(state.previous.score, 62);
+});
+
 test("limited recommendation uses the agent-accessible wording and grounded context", () => {
   const result = inspectHtml(thinShell, "https://example.test/app");
   const action = result.actions[0];

@@ -34,8 +34,8 @@ async function runAudit(url) {
   });
   const result = await response.json();
   if (!response.ok || result.status === "error") throw new Error(result.error || "The audit could not be completed.");
-  render(result);
   saveMonitoring(result);
+  render(result);
   return result;
 }
 
