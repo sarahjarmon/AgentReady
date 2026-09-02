@@ -26,6 +26,8 @@ ENV/
 build/
 dist/
 *.egg-info/
+node_modules/
+.netlify/
 
 # Local secrets and credentials
 .env

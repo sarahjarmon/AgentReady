@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="description" content="AgentReady: a bounded, evidence-first audit for the agentic web.">
+    <title>AgentReady — WebMCP Challenge demo</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <a class="brand" href="/" aria-label="AgentReady home">Agent<span>Ready</span></a>
+        <p class="eyebrow">WebMCP Challenge demo</p>
+        <h1>Make your business legible<br>to the agents your customers use.</h1>
+        <p class="lede">Run a bounded, evidence-first public-page audit. It measures observable website signals — never actual ChatGPT, Gemini, or Perplexity rankings.</p>
+      </header>
+
+      <section class="audit-form panel" aria-labelledby="audit-title">
+        <div>
+          <p class="section-kicker">Start an audit</p>
+          <h2 id="audit-title">A public URL in. Clear next actions out.</h2>
+        </div>
+        <form id="audit-form">
+          <label for="url">Website URL</label>
+          <div class="input-row">
+            <input id="url" name="url" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com" required>
+            <button id="submit" type="submit">Run audit <span aria-hidden="true">→</span></button>
+          </div>
+          <p class="form-note">One public HTML page · no login, checkout, form submission, or JavaScript execution.</p>
+        </form>
+        <p id="error" class="error" role="alert" hidden></p>
+      </section>
+
+      <section class="webmcp-status panel" aria-labelledby="webmcp-title">
+        <div class="status-dot" id="webmcp-dot" aria-hidden="true"></div>
+        <div><p class="section-kicker">Agent capability</p><h2 id="webmcp-title">WebMCP</h2><p id="webmcp-message">Checking browser support…</p></div>
+      </section>
+
+      <section id="empty-state" class="empty panel">
+        <p class="section-kicker">The future SaaS view</p>
+        <h2>Score. Actions. Monitoring.</h2>
+        <p>Enter a public URL to populate an evidence-backed snapshot. In a compatible browser, an agent can call the same audit through the real <code>agentready.run_audit</code> WebMCP tool.</p>
+      </section>
+
+      <div id="results" hidden>
+        <section class="results-header">
+          <div><p class="section-kicker">Observed public-page audit</p><h2 id="audited-url">—</h2></div>
+          <p id="audit-scope" class="scope"></p>
+        </section>
+
+        <section aria-labelledby="scores-title">
+          <div class="section-heading"><div><p class="section-kicker">01 — Score</p><h2 id="scores-title">What an agent can observe</h2></div><p>Scores are deterministic, per-page, and explainable.</p></div>
+          <div class="score-grid">
+            <article class="score-card"><p>Visibility</p><strong id="visibility-score">—</strong><span>Technical discoverability signals</span></article>
+            <article class="score-card"><p>Understanding</p><strong id="understanding-score">—</strong><span>Identity, offer, price, and structured signals</span></article>
+            <article class="score-card"><p>Buyability</p><strong id="buyability-score">—</strong><span>Observed commercial paths and details</span></article>
+          </div>
+        </section>
+
+        <section class="columns" aria-label="Audit findings">
+          <article class="panel actions"><p class="section-kicker">02 — Actions</p><h2>Highest-priority improvements</h2><ol id="actions-list"></ol></article>
+          <article class="panel evidence"><p class="section-kicker">Evidence</p><h2>Observed, not assumed</h2><div id="evidence-list"></div></article>
+        </section>
+
+        <section class="panel monitoring" aria-labelledby="monitoring-title">
+          <div><p class="section-kicker">03 — Monitoring</p><h2 id="monitoring-title">Track the last observed change</h2></div>
+          <div id="monitoring-content"></div>
+        </section>
+      </div>
+
+      <footer><p>AgentReady challenge demo · public-page evidence only</p></footer>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

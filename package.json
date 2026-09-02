@@ -1,0 +1,14 @@
+{
+  "name": "agentready-webmcp-demo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Minimal Netlify and WebMCP demonstration for AgentReady.",
+  "scripts": {
+    "test:web": "node --test tests/web-audit.test.mjs",
+    "dev": "npx netlify dev"
+  },
+  "devDependencies": {
+    "netlify-cli": "^23.0.0"
+  }
+}

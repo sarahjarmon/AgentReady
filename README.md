@@ -1,80 +1,102 @@
-# AgentReady 0.1
+# AgentReady
 
-Prototype technique d'audit d'un site public. Il explore un périmètre borné, extrait des informations avec leurs preuves, applique des règles déterministes et produit un JSON ainsi qu'un rapport HTML local.
+AgentReady is an evidence-first technical prototype for a future B2B SaaS that helps small and medium-sized businesses understand whether their public website is ready for a world where customers use AI assistants and agents to discover, understand, compare, recommend, and act.
 
-`AI Discoverability` désigne uniquement la découvrabilité technique observable. Ce n'est pas un classement dans ChatGPT, Gemini, Perplexity ou un autre assistant.
+It does **not** claim to measure a real ranking, citation rate, or recommendation frequency in ChatGPT, Gemini, Perplexity, or another AI product.
 
-## Installation et lancement
+## The WebMCP Challenge demo
 
-Le prototype nécessite Python 3.9 ou plus. Le mode HTTP n'a aucune dépendance externe. Le fallback JavaScript utilise Playwright et Chromium :
+This repository now includes a deliberately small, deployable demo for the WebMCP Challenge:
+
+```text
+Public URL → bounded public-page audit → Visibility / Understanding / Buyability → priority actions → local monitoring
+```
+
+The interface has three future-SaaS building blocks:
+
+- **Score** — deterministic, explainable public-page signals.
+- **Actions** — the most important observed gaps, never invented business facts.
+- **Monitoring** — the latest score, previous score, delta, and a local alert stored only in the browser.
+
+### What humans can do
+
+Humans can enter a public URL, run the audit, inspect the score cards, review the evidence supporting each score, and use the prioritized actions as a starting point for a content or technical improvement conversation.
+
+### What AI agents can do
+
+On a browser implementing WebMCP, the page registers the real native tool:
+
+```text
+agentready.run_audit
+```
+
+Its only input is a public `http` or `https` URL. Its execution calls the same live audit endpoint used by the interface and returns structured scores, evidence, priority actions, and audit status. The browser feature is detected at runtime: if `document.modelContext.registerTool()` is unavailable, the UI explicitly says that no agent tool is active.
+
+This uses the WebMCP imperative registration model; it is not a simulated button or custom RPC wrapper. See the [WebMCP specification](https://github.com/webmachinelearning/webmcp/blob/main/README.md).
+
+### What was added specifically for the challenge
+
+- a lightweight static web interface in `web/`;
+- a single Netlify Function at `/.netlify/functions/audit`;
+- native WebMCP registration in `web/webmcp.js`;
+- local-only monitoring through `localStorage`;
+- Node tests for the bounded audit Function;
+- Netlify deployment configuration.
+
+The challenge Function is **not the complete historical Python AgentReady engine**. It is a separate, intentionally bounded one-page demo lane: it fetches one public HTML page, does not execute remote JavaScript, does not crawl, does not submit a form, and only returns facts supported by the observed page. The Python CLI remains the richer prototype engine.
+
+## Safety boundaries of the demo endpoint
+
+The Function accepts only unauthenticated `http`/`https` URLs. It rejects localhost, IP literals, common private/link-local ranges, and obvious internal hostnames; checks DNS resolution before each request; uses a six-second request timeout; limits the response to 750 KB; manually follows at most three redirects; accepts HTML only; and never runs the target site’s JavaScript.
+
+Those checks reduce SSRF risk but do not replace production-grade network egress controls, DNS pinning, abuse prevention, rate limiting, or authentication.
+
+## Run locally
+
+Requirements: Node.js 20+ and npm.
 
 ```bash
-python3 -m pip install -e '.[headless]'
-python3 -m playwright install chromium
+npm install
+npm run dev
 ```
+
+Open the local URL printed by Netlify CLI. Enter a public HTTPS URL and select **Run audit**.
+
+To run the challenge tests:
+
+```bash
+npm run test:web
+```
+
+## Deploy to Netlify
+
+Create a new Netlify site from this repository. Netlify reads `netlify.toml` automatically:
+
+- publish directory: `web`
+- functions directory: `netlify/functions`
+
+No environment variables, database, account, payment provider, or background job are required for the demo.
+
+## Historical Python prototype
+
+The original CLI remains available for local exploration:
 
 ```bash
 python3 -m agentready audit https://example.com
-```
-
-Pour installer la commande dans un environnement virtuel :
-
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -e .
-.venv/bin/agentready audit https://example.com
-```
-
-Options principales :
-
-```text
---json PATH       sortie JSON (agentready-report.json par défaut)
---html PATH       sortie HTML (agentready-report.html par défaut)
---max-pages N     maximum 40 par défaut, plafond de sécurité 200
---max-depth N     profondeur 3 par défaut, plafond 8
---timeout N       délai HTTP par requête, 12 secondes par défaut
-```
-
-Le crawler reste sur le même hôte, respecte `robots.txt`, exclut les routes de compte, panier, checkout et administration, ne soumet aucun formulaire et limite chaque réponse HTTP à 5 Mo. Il commence en HTTP et n'ouvre Chromium que si le contenu paraît sous-rendu. Chaque page expose `fetch_method: http|headless` et, le cas échéant, `headless_reason`. Le budget headless est borné à huit pages prioritaires par audit ; le rapport indique son utilisation et signale si ce budget est atteint.
-
-## Profils métier
-
-- `ecommerce`
-- `service_with_booking`
-- `service_with_quote_or_lead`
-- `local_business`
-- `informational`
-- `unknown`
-
-La classification est une heuristique explicable. Sa confiance et ses preuves sont incluses dans le rapport. Les règles non applicables au profil sont retirées du dénominateur avant renormalisation sur 100.
-
-Une offre canonique combine au moins deux familles de signaux concordants parmi URL, heading, prix, CTA, formulation commerciale et données structurées. Une consolidation conservatrice regroupe les blocs qui désignent manifestement la même offre et conserve toutes leurs preuves ainsi que les raisons du regroupement. Elle expose son type, prix/devise, fréquence, disponibilité, CTA, URL, preuves et confiance. Le profil publie également les scores candidats et un indicateur d'ambiguïté ; un résultat trop serré reste `unknown`.
-
-La couverture indique séparément les pages HTML découvertes et analysées, les offres candidates/consolidées/conservées, le besoin et l'usage headless, les ressources non HTML ignorées et l'atteinte éventuelle des plafonds. `Observed AI Readiness` décrit uniquement la qualité observée ; `Coverage` et `Confidence-adjusted Readiness` indiquent séparément à quel point ce résultat peut être généralisé au site. Les règles versionnées figurent dans `docs/scoring.md`.
-
-## Sorties
-
-Le JSON suit le schéma logique `agentready.audit.v0.2`. Il contient : périmètre de crawl, modèle canonique, états des faits, offres, preuves, scores, points par règle, incohérences, problèmes priorisés, recommandations rejetées par le contrôle de cohérence et limites.
-
-La V0.2 applique la chaîne `extraction déterministe → preuves → validation contextuelle → faits canoniques → scoring déterministe`. Les montants conservent valeur numérique, devise, chaîne originale et preuve. Les rôles de page/bloc et les états de disponibilité commerciale sont explicites. Une interface sémantique stricte et interchangeable existe, mais elle est désactivée par défaut et ne peut jamais attribuer de points.
-
-Le rapport HTML expose les mêmes informations dans un format lisible. Il ne charge aucune ressource distante.
-
-## Tests et corpus
-
-```bash
 python3 -m unittest discover -s tests -v
 ```
 
-Le corpus synthétique dans `tests/fixtures` couvre les six profils et un mini-site e-commerce. Toutes les informations y sont fictives.
+The CLI crawler is bounded, respects `robots.txt`, and starts with HTTP before using its optional headless fallback. It produces JSON and a local HTML report with evidence and deterministic score rules.
 
-## Limites v0.1
+## Known MVP limitations
 
-- le rendu JavaScript nécessite l'extra optionnelle `headless` et Chromium ;
-- français et anglais principalement ;
-- extraction heuristique, sans LLM ni connaissance externe ;
-- pas de navigation transactionnelle ni validation du checkout ;
-- pas d'analyse des PDF, images ou contenu authentifié ;
-- pas de mesure d'impressions, de rang, de citation ou de recommandation dans un moteur externe.
+- The challenge audit reads only one public HTML page and is not a site-wide crawl.
+- Its commercial extraction is conservative and intentionally returns `unknown` when the page does not prove a fact.
+- JavaScript-rendered content, authenticated content, checkout flows, PDFs, images, APIs, and third-party booking/payment flows are out of scope.
+- The monitoring panel is browser-local, not shared, scheduled, or persistent across devices.
+- WebMCP availability depends on the active browser implementation and agent integration.
+- Neither audit lane measures real AI search ranking, citations, traffic, conversion, or agent purchase completion.
 
-Voir [docs/scoring.md](docs/scoring.md) pour le référentiel complet.
+## Repository hygiene
+
+Generated audits and historical benchmark artifacts remain ignored. The public V0.2 baseline commit is preserved; no benchmark output is required for the challenge demo.
