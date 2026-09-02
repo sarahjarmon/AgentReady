@@ -1,4 +1,5 @@
 import { registerAuditTool } from "./webmcp.js";
+import { nextMonitoringState } from "./monitoring.js";
 
 const form = document.querySelector("#audit-form");
 const urlInput = document.querySelector("#url");
@@ -12,12 +13,6 @@ function esc(value) {
   const node = document.createElement("span");
   node.textContent = String(value ?? "");
   return node.innerHTML;
-}
-
-function totalScore(result) {
-  const { visibility, understanding, buyability } = result.scores;
-  if (![visibility, understanding, buyability].every(Number.isFinite)) return null;
-  return Math.round((visibility + understanding + buyability) / 3);
 }
 
 function setStatus(kind, message) {
@@ -49,6 +44,7 @@ function render(result) {
   results.hidden = false;
   document.querySelector("#audited-url").textContent = result.final_url || result.target_url;
   document.querySelector("#audit-scope").textContent = result.audit_scope;
+  document.querySelector("#acquisition-method").textContent = result.acquisition?.method === "rendered" ? "Rendered page analyzed" : "Public page analyzed";
   for (const name of ["visibility", "understanding", "buyability"]) {
     const value = result.scores[name];
     const score = document.querySelector(`#${name}-score`);
@@ -69,10 +65,8 @@ function render(result) {
 }
 
 function saveMonitoring(result) {
-  const now = new Date().toISOString();
-  const current = { url: result.target_url, score: totalScore(result), scores: result.scores, acquisition: result.acquisition?.status || "unknown", at: now };
   const previous = JSON.parse(localStorage.getItem(storageKey) || "null");
-  localStorage.setItem(storageKey, JSON.stringify({ current, previous: previous?.current || null }));
+  localStorage.setItem(storageKey, JSON.stringify(nextMonitoringState(previous, result)));
 }
 
 function renderMonitoring() {

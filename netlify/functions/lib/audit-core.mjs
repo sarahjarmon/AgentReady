@@ -1,7 +1,7 @@
 import { lookup } from "node:dns/promises";
 import net from "node:net";
 
-export const AUDIT_SCOPE = "One public HTML page; no JavaScript execution, form submission, checkout, or authenticated content.";
+export const AUDIT_SCOPE = "One public page; static HTML first, with an optional bounded rendered-DOM fallback. No form submission, checkout, or authenticated content.";
 export const EvidenceState = Object.freeze({
   OBSERVED: "OBSERVED",
   NOT_OBSERVED: "NOT_OBSERVED",
@@ -11,7 +11,10 @@ export const EvidenceState = Object.freeze({
 const MAX_BYTES = 750_000;
 const TIMEOUT_MS = 6_000;
 const MAX_REDIRECTS = 3;
+const RENDER_TIMEOUT_MS = 9_000;
+const MAX_RENDERED_BYTES = 1_000_000;
 const BLOCKED_STATUS = new Set([401, 403, 429, 451]);
+const RENDERER_BLOCKED_STATUS = new Set([401, 403, 429, 451]);
 
 const COMMERCIAL_WORDS = /\b(product|products|shop|store|service|services|course|courses|booking|appointment|appointments|consultation|consultations|programme|program|formation|formations|produit|produits|service|services|cours|r[ée]servation|rendez[- ]vous|tarif|tarifs|offre|offres|abonnement|subscription)\b/i;
 const CTA_WORDS = /\b(add to cart|buy now|buy|order|checkout|book now|book|reserve|request a quote|contact us|sign up|subscribe|ajouter au panier|acheter|commander|r[ée]server|prendre rendez[- ]vous|demander un devis|obtenir un devis|contactez[- ]nous|nous contacter|s['’]inscrire|inscription|je m['’]inscris|appeler|appelez[- ]nous)\b/i;
@@ -113,6 +116,81 @@ export async function fetchPublicHtml(input, dependencies = {}) {
   throw new Error("The page could not be fetched safely.");
 }
 
+function rendererUnavailable(reason = "No rendered-page provider is configured for this deployment.") {
+  return { status: "unavailable", rendered: false, reason, metadata: {} };
+}
+
+async function assertSafeRendererNavigation(urlValue, resolver) {
+  const url = validatePublicUrl(urlValue);
+  await assertPublicResolution(url.hostname, resolver);
+  return url;
+}
+
+async function validateRenderedMetadata(metadata, fallbackUrl, resolver) {
+  const chain = Array.isArray(metadata?.redirectChain) ? metadata.redirectChain : [];
+  const candidates = [...chain.map((entry) => entry?.url).filter(Boolean), metadata?.finalUrl || fallbackUrl];
+  let finalUrl = fallbackUrl;
+  for (const candidate of candidates) {
+    const safeUrl = await assertSafeRendererNavigation(candidate, resolver);
+    finalUrl = safeUrl.toString();
+  }
+  return finalUrl;
+}
+
+/**
+ * Cloudflare Browser Run's /content REST endpoint is deliberately kept behind
+ * this small adapter. The audit engine only consumes the renderer contract,
+ * so another isolated provider can replace it without changing scoring.
+ */
+export function createRendererFromEnv(env = process.env, dependencies = {}) {
+  const provider = env.AGENTREADY_RENDERER_PROVIDER;
+  if (!provider) return { provider: "none", renderPage: async () => rendererUnavailable() };
+  if (provider !== "cloudflare-browser-run") {
+    return { provider, renderPage: async () => rendererUnavailable("The configured rendered-page provider is not supported by this demo.") };
+  }
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID;
+  const token = env.CLOUDFLARE_API_TOKEN;
+  if (!accountId || !token) {
+    return { provider, renderPage: async () => rendererUnavailable("Rendered-page fallback is not configured with its required provider credentials.") };
+  }
+  const fetchImpl = dependencies.rendererFetchImpl || fetch;
+  const resolver = dependencies.resolver || lookup;
+  return {
+    provider,
+    async renderPage(input, options = {}) {
+      const startedAt = Date.now();
+      let target;
+      try { target = await assertSafeRendererNavigation(input, resolver); }
+      catch (error) { return { status: "blocked", rendered: false, reason: error instanceof Error ? error.message : "The renderer target could not be validated safely.", metadata: {} }; }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), options.timeoutMs || RENDER_TIMEOUT_MS);
+      try {
+        const response = await fetchImpl(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/browser-rendering/content`, {
+          method: "POST",
+          signal: controller.signal,
+          headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            url: target.toString(),
+            gotoOptions: { waitUntil: "domcontentloaded", timeout: Math.min(options.navigationTimeoutMs || 6_000, RENDER_TIMEOUT_MS) },
+            rejectResourceTypes: ["image", "media", "font"],
+          }),
+        });
+        if (RENDERER_BLOCKED_STATUS.has(response.status)) return { status: "blocked", rendered: false, reason: `The rendered-page provider returned HTTP ${response.status}.`, metadata: { provider, http_status: response.status, timing_ms: Date.now() - startedAt } };
+        if (!response.ok) return { status: "failed", rendered: false, reason: `The rendered-page provider returned HTTP ${response.status}.`, metadata: { provider, http_status: response.status, timing_ms: Date.now() - startedAt } };
+        const payload = JSON.parse(await readLimited(response, MAX_RENDERED_BYTES));
+        if (!payload?.success || typeof payload.result !== "string" || !payload.result.trim()) {
+          return { status: "failed", rendered: false, reason: payload?.errors?.[0]?.message || "The rendered-page provider returned no usable HTML.", metadata: { provider, timing_ms: Date.now() - startedAt } };
+        }
+        const finalUrl = await validateRenderedMetadata(payload.meta, target.toString(), resolver);
+        return { status: "success", rendered: true, html: payload.result, finalUrl, reason: "Rendered public DOM acquired.", metadata: { provider, timing_ms: Date.now() - startedAt, http_status: payload.meta?.status || null, browser_ms: Number(response.headers.get("x-browser-ms-used")) || null } };
+      } catch (error) {
+        const timeout = error?.name === "AbortError";
+        return { status: timeout ? "timeout" : "failed", rendered: false, reason: timeout ? "The rendered-page fallback timed out." : "The rendered-page fallback failed.", metadata: { provider, timing_ms: Date.now() - startedAt } };
+      } finally { clearTimeout(timer); }
+    },
+  };
+}
+
 function decode(value = "") {
   return value.replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/&#39;/gi, "'").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -140,18 +218,18 @@ function actionSignals(html) {
 function assessAcquisition(html) {
   const visible = decode(html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<template[\s\S]*?<\/template>|<noscript[\s\S]*?<\/noscript>/gi, " "));
   const reason = [];
-  if (BOT_BLOCK_WORDS.test(`${html} ${visible}`)) return { status: "blocked", visible, reasons: ["The public response appears to be an anti-bot, challenge, or access-control page rather than the business page."] };
-  if (JS_REQUIRED_WORDS.test(`${html} ${visible}`)) return { status: "limited", hardLimited: true, visible, reasons: ["The response says that JavaScript is required or disabled."] };
+  if (BOT_BLOCK_WORDS.test(`${html} ${visible}`)) return { status: "blocked", visible, renderable: false, reasons: ["The public response appears to be an anti-bot, challenge, or access-control page rather than the business page."] };
+  if (JS_REQUIRED_WORDS.test(`${html} ${visible}`)) return { status: "limited", hardLimited: true, renderable: true, visible, reasons: ["The response says that JavaScript is required or disabled."] };
   if (visible.length < 180) reason.push("The static HTML contains very little visible content.");
   const scriptSize = (html.match(/<script\b/gi) || []).length;
   if (visible.length < 500 && scriptSize >= 5) reason.push("The document looks like a thin application shell with many scripts.");
-  return { status: reason.length ? "limited" : "full", hardLimited: false, visible, reasons: reason };
+  return { status: reason.length ? "limited" : "full", hardLimited: false, renderable: visible.length < 500 && scriptSize >= 5, visible, reasons: reason };
 }
 
-function blockedResult(targetUrl, httpStatus, reason) {
+function blockedResult(targetUrl, httpStatus, reason, acquisitionDetails = {}) {
   const capabilities = Object.fromEntries(["identity", "offer", "pricing", "conversion", "availability", "payment", "geography"].map((field) => [field, { state: EvidenceState.INSUFFICIENT, evidence: [] }]));
   return {
-    status: "blocked", acquisition: { status: "blocked", explanation: reason, reasons: [reason] }, target_url: targetUrl, final_url: targetUrl, http_status: httpStatus, audit_scope: AUDIT_SCOPE,
+    status: "blocked", acquisition: { status: "blocked", method: acquisitionDetails.method || "static", renderer: acquisitionDetails.renderer || null, render_attempted: Boolean(acquisitionDetails.renderer), explanation: reason, reasons: [reason] }, target_url: targetUrl, final_url: targetUrl, http_status: httpStatus, audit_scope: AUDIT_SCOPE,
     scores: { visibility: null, understanding: null, buyability: null }, readiness: { observed_readiness: null, state: "insufficient_evidence" }, score_status: "insufficient_evidence", capabilities,
     evidence: { acquisition: [compactEvidence("Blocked public acquisition", reason)], visibility: [], understanding: [], buyability: [] },
     actions: [{ priority: "high", title: "Keep essential public information accessible to agents", reason: "AgentReady could not retrieve a representative public HTML page, so it cannot assess commercial readiness from this response." }],
@@ -159,9 +237,10 @@ function blockedResult(targetUrl, httpStatus, reason) {
   };
 }
 
-export function inspectHtml(html, targetUrl) {
+export function inspectHtml(html, targetUrl, options = {}) {
   const acquisition = assessAcquisition(html);
-  if (acquisition.status === "blocked") return blockedResult(targetUrl, 200, acquisition.reasons[0]);
+  const method = options.method || "static";
+  if (acquisition.status === "blocked") return blockedResult(targetUrl, 200, acquisition.reasons[0], { method, renderer: options.renderer || null });
   const title = firstMatch(html, /<title[^>]*>([\s\S]*?)<\/title>/i);
   const description = firstMatch(html, /<meta[^>]+(?:name|property)=["'](?:description|og:description)["'][^>]+content=["']([^"']+)["'][^>]*>/i) || firstMatch(html, /<meta[^>]+content=["']([^"']+)["'][^>]+(?:name|property)=["'](?:description|og:description)["'][^>]*>/i);
   const canonical = firstMatch(html, /<link[^>]+rel=["'][^"']*canonical[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>/i);
@@ -196,7 +275,7 @@ export function inspectHtml(html, targetUrl) {
   const limited = acquisition.status === "limited";
   const actionsOut = [];
   if (limited) {
-    actionsOut.push({ priority: "high", title: "Make key commercial information available without client-side rendering", reason: "This audit received limited static evidence. Publish essential offers, prices, and next steps in server-rendered HTML or validated structured data so agents can inspect them reliably." });
+    actionsOut.push({ priority: "high", title: "Make key commercial information agent-accessible", reason: "This audit received limited evidence. Expose essential offers, prices, and next steps in server-rendered HTML and/or validated structured data so agents can inspect them reliably." });
   } else if (commercialContext) {
     if (!capabilityValues.offer) actionsOut.push({ priority: "high", title: "Make the main offer explicit", reason: "No commercial offer heading, supported structured data, or corroborating price-and-action signal was observed on this page." });
     if (!capabilityValues.conversion) actionsOut.push({ priority: "high", title: "Add a clear commercial next step", reason: "No purchase, booking, quote, or contact action was observed on this page." });
@@ -207,13 +286,44 @@ export function inspectHtml(html, targetUrl) {
   }
   const scores = { visibility, understanding: limited ? null : understanding, buyability: limited ? null : buyability };
   return {
-    status: limited ? "limited" : "complete", acquisition: { status: acquisition.status, explanation: limited ? "The static response may not represent the user-visible page. Missing capabilities are marked as insufficient evidence, not absent." : "The static HTML contained enough visible content for this bounded public-page audit.", reasons: acquisition.reasons },
+    status: limited ? "limited" : "complete", acquisition: { status: acquisition.status, method, renderer: options.renderer || null, render_attempted: Boolean(options.renderer), rendering_recommended: Boolean(acquisition.renderable && limited), explanation: limited ? "The acquired response may not represent the user-visible page. Missing capabilities are marked as insufficient evidence, not absent." : method === "rendered" ? "A rendered public page was analyzed after static acquisition appeared incomplete." : "The static HTML contained enough visible content for this bounded public-page audit.", reasons: acquisition.reasons },
     target_url: targetUrl, audit_scope: AUDIT_SCOPE, scores, readiness: { observed_readiness: limited ? null : Math.round((visibility + understanding + buyability) / 3), state: limited ? "insufficient_evidence" : "observed" }, score_status: limited ? "insufficient_evidence" : "meaningful", capabilities, evidence, actions: actionsOut.slice(0, 4), summary: { title: title || "unknown", headings: headings.slice(0, 5), prices, commercial_actions: actions.values.slice(0, 5), journey },
+  };
+}
+
+function limitedAfterRenderer(staticResult, rendererResult) {
+  const reason = rendererResult.reason || "The rendered-page fallback did not return usable HTML.";
+  return {
+    ...staticResult,
+    acquisition: {
+      ...staticResult.acquisition,
+      renderer: { status: rendererResult.status, rendered: false, ...(rendererResult.metadata || {}) },
+      render_attempted: true,
+      explanation: "The static response appeared incomplete and rendered acquisition did not produce sufficient public evidence. Missing capabilities remain unknown.",
+      reasons: [...staticResult.acquisition.reasons, reason],
+    },
+    evidence: { ...staticResult.evidence, acquisition: [...staticResult.evidence.acquisition, compactEvidence("Rendered fallback", reason)] },
   };
 }
 
 export async function auditPublicPage(url, dependencies = {}) {
   const page = await fetchPublicHtml(url, dependencies);
   if (page.blocked) return blockedResult(page.finalUrl, page.status, `The public page returned HTTP ${page.status}, which commonly indicates access control or rate limiting.`);
-  return { ...inspectHtml(page.html, page.finalUrl), http_status: page.status, final_url: page.finalUrl };
+  const staticResult = inspectHtml(page.html, page.finalUrl, { method: "static" });
+  if (staticResult.status !== "limited" || !staticResult.acquisition.rendering_recommended) {
+    return { ...staticResult, http_status: page.status, final_url: page.finalUrl };
+  }
+  const renderer = dependencies.renderer || createRendererFromEnv(dependencies.env || process.env, dependencies);
+  const rendered = await renderer.renderPage(page.finalUrl, { timeoutMs: RENDER_TIMEOUT_MS, navigationTimeoutMs: 6_000 });
+  if (rendered.status === "success" && rendered.rendered && typeof rendered.html === "string") {
+    let finalUrl;
+    try { finalUrl = (await assertSafeRendererNavigation(rendered.finalUrl || page.finalUrl, dependencies.resolver || lookup)).toString(); }
+    catch (error) { return blockedResult(page.finalUrl, page.status, `The rendered-page fallback returned an unsafe destination: ${error instanceof Error ? error.message : "destination validation failed"}`, { method: "static", renderer: { status: "blocked", rendered: false, ...(rendered.metadata || {}) } }); }
+    const renderedResult = inspectHtml(rendered.html, finalUrl, { method: "rendered", renderer: { status: "success", rendered: true, ...(rendered.metadata || {}) } });
+    return { ...renderedResult, http_status: page.status, final_url: finalUrl };
+  }
+  if (rendered.status === "blocked") {
+    return blockedResult(page.finalUrl, page.status, `The static response was incomplete and the rendered-page fallback was blocked: ${rendered.reason || "access was denied"}`, { method: "static", renderer: { status: "blocked", rendered: false, ...(rendered.metadata || {}) } });
+  }
+  return { ...limitedAfterRenderer(staticResult, rendered), http_status: page.status, final_url: page.finalUrl };
 }

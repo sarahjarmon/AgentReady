@@ -27,7 +27,7 @@
             <input id="url" name="url" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com" required>
             <button id="submit" type="submit">Run audit <span aria-hidden="true">→</span></button>
           </div>
-          <p class="form-note">One public HTML page · no login, checkout, form submission, or JavaScript execution.</p>
+          <p class="form-note">One public page · static first, with bounded rendering only when needed · no login, checkout, or form submission.</p>
         </form>
         <p id="error" class="error" role="alert" hidden></p>
       </section>
@@ -45,7 +45,7 @@
 
       <div id="results" hidden>
         <section class="results-header">
-          <div><p class="section-kicker">Observed public-page audit</p><h2 id="audited-url">—</h2></div>
+          <div><p class="section-kicker">Observed public-page audit</p><h2 id="audited-url">—</h2><p id="acquisition-method" class="method">—</p></div>
           <p id="audit-scope" class="scope"></p>
         </section>
         <section id="acquisition-notice" class="acquisition panel" hidden aria-live="polite"></section>
