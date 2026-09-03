@@ -1,5 +1,5 @@
 import { registerAuditTool } from "./webmcp.js";
-import { aiReadinessScore, primaryFinding, reportAccessState } from "./commercial.js";
+import { aiReadinessScore, buildLeadPayload, primaryFinding, reportAccessState, submitLead } from "./commercial.js";
 import { isMonitoringComparable, nextMonitoringState } from "./monitoring.js";
 
 const form = document.querySelector("#audit-form");
@@ -17,6 +17,7 @@ const founderOffer = document.querySelector("#founder-offer");
 const founderCta = document.querySelector("#founder-cta");
 const founderStatus = document.querySelector("#founder-status");
 const storageKey = "agentready.webmcp.last-audit.v1";
+let currentAudit = null;
 
 function esc(value) {
   const node = document.createElement("span");
@@ -56,12 +57,13 @@ async function runAudit(url) {
 }
 
 function render(result) {
+  currentAudit = result;
   emptyState.hidden = true;
   results.hidden = false;
   reportCapture.hidden = false;
   setReportAccess(false);
   emailForm.reset();
-  emailStatus.textContent = "Email delivery is a beta placeholder. Your address is not stored or sent yet.";
+  emailStatus.textContent = "Your email is saved only after you submit this form. Email delivery is a beta placeholder and is not connected yet.";
   founderStatus.textContent = "Founder checkout is a Stripe placeholder for this beta.";
   document.querySelector("#audited-url").textContent = result.final_url || result.target_url;
   document.querySelector("#audit-scope").textContent = result.audit_scope;
@@ -109,20 +111,36 @@ function renderMonitoring() {
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault(); hideError();
+  currentAudit = null;
+  setReportAccess(false);
   submit.disabled = true; submit.textContent = "Auditing…";
   try { await runAudit(urlInput.value.trim()); }
   catch (error) { showError(error instanceof Error ? error.message : "The audit could not be completed."); }
   finally { submit.disabled = false; submit.innerHTML = "Run Free Audit <span aria-hidden=\"true\">→</span>"; }
 });
 
-// Placeholder only: no email is persisted or transmitted until a consented delivery service is connected.
-emailForm.addEventListener("submit", (event) => {
+// Lead storage is server-side; email delivery remains a separate future integration.
+async function captureLeadFromForm(event) {
   event.preventDefault();
+  emailInput.value = emailInput.value.trim().toLowerCase();
   if (!emailInput.validity.valid) { emailStatus.textContent = "Enter a valid email address to continue."; emailInput.focus(); return; }
-  emailStatus.textContent = "Your report is unlocked below. Email delivery will be connected in a future beta update.";
-  setReportAccess(true);
-  fullReport.scrollIntoView({ behavior: "smooth", block: "start" });
-});
+  if (!currentAudit) { emailStatus.textContent = "Run an audit before requesting your report."; return; }
+  const captureButton = emailForm.querySelector("button[type=submit]");
+  captureButton.disabled = true;
+  emailStatus.textContent = "Saving your details…";
+  try {
+    await submitLead(buildLeadPayload(emailInput.value, currentAudit));
+    emailStatus.textContent = "Your report is unlocked below. Email delivery will be connected in a future beta update.";
+    setReportAccess(true);
+    fullReport.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (error) {
+    emailStatus.textContent = error instanceof Error ? error.message : "We couldn't save your details. Please try again.";
+  } finally {
+    captureButton.disabled = false;
+  }
+}
+
+emailForm.addEventListener("submit", captureLeadFromForm);
 
 // Placeholder only: Stripe checkout is intentionally not connected in this branch.
 founderCta.addEventListener("click", () => {

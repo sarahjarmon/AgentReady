@@ -3,7 +3,8 @@ import test from "node:test";
 
 import { auditPublicPage, createRendererFromEnv, EvidenceState, inspectHtml, isBlockedHostname, isPrivateIp, validatePublicUrl } from "../netlify/functions/lib/audit-core.mjs";
 import auditHandler from "../netlify/functions/audit.mjs";
-import { aiReadinessScore, primaryFinding, reportAccessState } from "../web/commercial.js";
+import leadHandler from "../netlify/functions/capture-lead.mjs";
+import { aiReadinessScore, buildLeadPayload, primaryFinding, reportAccessState, submitLead } from "../web/commercial.js";
 import { isMonitoringComparable, nextMonitoringState } from "../web/monitoring.js";
 import { toWebMcpResult } from "../web/webmcp.js";
 
@@ -15,6 +16,20 @@ const changedCommercialPage = commercialPage.replace("Visa accepted.", "");
 const publicResolver = async () => [{ address: "93.184.216.34", family: 4 }];
 const htmlResponse = (html) => new Response(html, { status: 200, headers: { "content-type": "text/html" } });
 const successfulRenderer = (html = commercialPage, finalUrl = "https://example.test/rendered") => ({ renderPage: async () => ({ status: "success", rendered: true, html, finalUrl, metadata: { provider: "test-renderer", timing_ms: 12 } }) });
+const supabaseTestEnv = { SUPABASE_URL: "https://project.supabase.co", SUPABASE_SECRET_KEY: "server-only-test-value" };
+const validLead = (overrides = {}) => ({
+  email: "Sarah@example.test ",
+  website_url: "https://example.test/services",
+  readiness_score: 72,
+  visibility_score: 80,
+  understanding_score: 70,
+  buyability_score: 66,
+  audit_status: "complete",
+  ...overrides,
+});
+const leadRequest = (payload) => new Request("https://demo.test/.netlify/functions/capture-lead", {
+  method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+});
 
 test("rejects local, private, and non-web destinations", () => {
   for (const value of ["http://localhost:3000", "https://127.0.0.1", "http://10.0.0.8", "ftp://example.test", "http://[::1]"]) assert.throws(() => validatePublicUrl(value));
@@ -67,6 +82,103 @@ test("a new audit resets previously unlocked commercial report access", () => {
   const stateForNewAudit = reportAccessState(false);
   assert.equal(stateForNewAudit.fullReportHidden, true);
   assert.equal(stateForNewAudit.founderOfferHidden, true);
+});
+
+test("valid lead submission is normalized and upserted only by the server-side Function", async () => {
+  let received;
+  const response = await leadHandler(leadRequest(validLead()), {
+    env: supabaseTestEnv,
+    fetchImpl: async (url, init) => {
+      received = { url: String(url), init, payload: JSON.parse(init.body) };
+      return new Response(null, { status: 201 });
+    },
+  });
+  assert.equal(response.status, 201);
+  assert.deepEqual(await response.json(), { ok: true });
+  assert.equal(received.url, "https://project.supabase.co/rest/v1/leads?on_conflict=email%2Cwebsite_url");
+  assert.equal(received.init.headers.apikey, "server-only-test-value");
+  assert.equal("authorization" in received.init.headers, false);
+  assert.equal(received.init.headers.prefer, "resolution=merge-duplicates,return=minimal");
+  assert.equal(received.payload[0].email, "sarah@example.test");
+  assert.equal(received.payload[0].website_url, "https://example.test/services");
+});
+
+test("legacy server-only variable remains a backend-only fallback", async () => {
+  let receivedKey;
+  const response = await leadHandler(leadRequest(validLead()), {
+    env: { SUPABASE_URL: "https://project.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "legacy-server-only-test-value" },
+    fetchImpl: async (_url, init) => {
+      receivedKey = init.headers.apikey;
+      return new Response(null, { status: 201 });
+    },
+  });
+  assert.equal(response.status, 201);
+  assert.equal(receivedKey, "legacy-server-only-test-value");
+});
+
+test("Supabase authentication failures are logged safely while the browser gets a generic error", async () => {
+  const warnings = [];
+  const response = await leadHandler(leadRequest(validLead()), {
+    env: supabaseTestEnv,
+    fetchImpl: async () => new Response(null, { status: 401 }),
+    logger: { warn: (...args) => warnings.push(args) },
+  });
+  assert.equal(response.status, 502);
+  assert.deepEqual(await response.json(), { ok: false, error: "We couldn't save your details. Please try again." });
+  assert.deepEqual(warnings, [["lead_capture_failure", { kind: "authentication", status: 502 }]]);
+});
+
+test("request setup failures are classified without logging request values", async () => {
+  const warnings = [];
+  const response = await leadHandler(leadRequest(validLead()), {
+    env: supabaseTestEnv,
+    fetchImpl: async () => { throw new TypeError("request setup failed"); },
+    logger: { warn: (...args) => warnings.push(args) },
+  });
+  assert.equal(response.status, 502);
+  assert.deepEqual(warnings, [["lead_capture_failure", { kind: "request_setup", status: 502 }]]);
+});
+
+test("invalid lead email and URL are rejected before any Supabase request", async () => {
+  let calls = 0;
+  const dependencies = { env: supabaseTestEnv, fetchImpl: async () => { calls += 1; return new Response(null, { status: 201 }); } };
+  const badEmail = await leadHandler(leadRequest(validLead({ email: "not-an-email" })), dependencies);
+  const badUrl = await leadHandler(leadRequest(validLead({ website_url: "ftp://example.test" })), dependencies);
+  assert.equal(badEmail.status, 400);
+  assert.equal(badUrl.status, 400);
+  assert.equal(calls, 0);
+});
+
+test("invalid scores are rejected while null unknown scores are retained", async () => {
+  const invalid = await leadHandler(leadRequest(validLead({ visibility_score: 101 })), { env: supabaseTestEnv, fetchImpl: async () => new Response(null, { status: 201 }) });
+  assert.equal(invalid.status, 400);
+  let saved;
+  const accepted = await leadHandler(leadRequest(validLead({ readiness_score: null, visibility_score: null, understanding_score: null, buyability_score: null })), {
+    env: supabaseTestEnv,
+    fetchImpl: async (_url, init) => { saved = JSON.parse(init.body)[0]; return new Response(null, { status: 201 }); },
+  });
+  assert.equal(accepted.status, 201);
+  assert.deepEqual([saved.readiness_score, saved.visibility_score, saved.understanding_score, saved.buyability_score], [null, null, null, null]);
+});
+
+test("backend failure does not unlock the full report or Founder Plan", async () => {
+  await assert.rejects(() => submitLead(validLead(), async () => new Response(JSON.stringify({ ok: false, error: "Please retry." }), { status: 502, headers: { "content-type": "application/json" } })), /Please retry/);
+  const state = reportAccessState(false);
+  assert.equal(state.fullReportHidden, true);
+  assert.equal(state.founderOfferHidden, true);
+});
+
+test("successful backend capture unlocks the report and Founder Plan for the current audit", async () => {
+  const audit = inspectHtml(commercialPage, "https://example.test/services");
+  const payload = buildLeadPayload(" Owner@Example.Test ", audit);
+  await submitLead(payload, async (url, init) => {
+    assert.equal(url, "/.netlify/functions/capture-lead");
+    assert.equal(JSON.parse(init.body).email, "owner@example.test");
+    return new Response(JSON.stringify({ ok: true }), { status: 201, headers: { "content-type": "application/json" } });
+  });
+  const state = reportAccessState(true);
+  assert.equal(state.fullReportHidden, false);
+  assert.equal(state.founderOfferHidden, false);
 });
 
 test("product price and purchase CTA are associated as observable commerce", () => {
