@@ -6,6 +6,7 @@
     <meta name="description" content="Find out whether AI agents can find, understand, and act on your business website.">
     <title>AgentReady — AI website readiness</title>
     <link rel="stylesheet" href="/styles.css">
+    <style>#founder-cta.founder-cta{display:block;width:100%;border-radius:11px;padding:14px 18px;background:#c9f458;color:#10362b;font:inherit;font-weight:800;text-align:center;text-decoration:none;transition:transform .15s,background .15s}#founder-cta.founder-cta:hover{background:#e1ff93;transform:translateY(-1px)}.how-it-works{margin-top:52px}.how-it-works .section-heading{margin-bottom:17px}.how-it-works-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.how-it-works-grid article{padding:24px;border:1px solid var(--line);border-radius:16px;background:var(--white)}.how-it-works-grid span{color:var(--green);font-size:12px;font-weight:850}.how-it-works-grid h3{margin:8px 0;font-size:18px;letter-spacing:-.025em}.how-it-works-grid p{margin:0;color:var(--muted);font-size:14px}.founder-reassurance{margin:10px 0 0;color:#e0ebe5;font-size:13px;font-weight:700;text-align:center}.faq{margin-top:52px;padding:32px}.faq h2{margin:0;letter-spacing:-.04em;line-height:1.05}.faq-list{margin-top:20px;border-top:1px solid var(--line)}.faq details{border-bottom:1px solid var(--line);padding:15px 0}.faq summary{cursor:pointer;font-weight:750;list-style-position:inside}.faq details p{max-width:850px;margin:10px 0 0;color:var(--muted);font-size:14px}@media(max-width:780px){.how-it-works-grid{grid-template-columns:1fr 1fr}}@media(max-width:480px){.how-it-works-grid{grid-template-columns:1fr}.faq{padding:24px}}</style>
   </head>
   <body>
     <main class="shell">
@@ -43,6 +44,15 @@
         <article><span>03</span><h2>Buyability</h2><p>Can they identify a meaningful next step to buy, book, or contact you?</p></article>
       </section>
 
+      <section class="how-it-works" aria-labelledby="how-it-works-title">
+        <div class="section-heading"><div><p class="section-kicker">A clear starting point</p><h2 id="how-it-works-title">How AgentReady Works</h2></div></div>
+        <div class="how-it-works-grid">
+          <article><span>01</span><h3>Run your free audit</h3><p>Enter your website URL. AgentReady analyzes the public signals AI agents can actually access.</p></article>
+          <article><span>02</span><h3>Understand your AI readiness</h3><p>See how your website performs across Visibility, Understanding and Buyability, with evidence showing what AgentReady could verify.</p></article>
+          <article><span>03</span><h3>Know what to fix first</h3><p>Get prioritized recommendations showing the most important improvements to make your website easier for AI agents to discover, understand and navigate toward an action.</p></article>
+        </div>
+      </section>
+
       <div id="results" hidden>
         <section class="results-header">
           <div><p class="section-kicker">Your AI readiness snapshot</p><h2 id="audited-url">—</h2><p id="acquisition-method" class="method">—</p></div>
@@ -66,11 +76,11 @@
         </section>
 
         <section id="report-capture" class="report-capture panel" hidden aria-labelledby="report-title">
-          <div><p class="section-kicker">Next step</p><h2 id="report-title">Get your full AI Readiness Report</h2><p>Enter your email to receive your complete audit and prioritized recommendations.</p></div>
+          <div><p class="section-kicker">Next step</p><h2 id="report-title">Get your full AI Readiness Report</h2><p>Enter your email to unlock your complete audit and prioritized recommendations.</p></div>
           <form id="email-form" novalidate>
             <label for="email">Email address</label>
-            <div class="input-row"><input id="email" name="email" type="email" autocomplete="email" placeholder="you@company.com" required><button type="submit">Send My Free Report</button></div>
-            <p id="email-status" class="form-note" role="status">Your email is saved only after you submit this form. Email delivery is a beta placeholder and is not connected yet.</p>
+            <div class="input-row"><input id="email" name="email" type="email" autocomplete="email" placeholder="you@company.com" required><button type="submit">Unlock My Free Report</button></div>
+            <p id="email-status" class="form-note" role="status">Your report unlocks on this page after you submit this form.</p>
           </form>
         </section>
 
@@ -87,10 +97,22 @@
         </div>
 
         <section id="founder-offer" class="founder-offer panel" hidden aria-labelledby="founder-title">
-          <div class="founder-copy"><p class="section-kicker">Limited founder offer</p><h2 id="founder-title">Founder Plan</h2><p class="price"><strong>$39</strong><span>/month</span></p><p class="regular-price">Future regular price <s>$49/month</s></p><p>Lock in $39/month for life as one of the first 100 AgentReady founders.</p></div>
-          <div class="founder-includes"><h3>Included from day one</h3><ul><li>Full AI Readiness Report</li><li>Full prioritized Action Plan</li><li>Weekly automatic re-audits</li><li>Monitoring &amp; readiness history</li><li>Alerts when readiness drops</li></ul><button id="founder-cta" type="button">Become a Founder — $39/month</button><p id="founder-status" class="form-note" role="status">Founder checkout is a Stripe placeholder for this beta.</p></div>
+          <div class="founder-copy"><p class="section-kicker">Limited founder offer</p><h2 id="founder-title">Founder Plan</h2><p class="price"><strong>$39</strong><span>/month</span></p><p class="regular-price">Regular price <s>$49/month</s></p><p>First 100 Founders. Your $39/month Founder price is locked while your subscription remains active.</p></div>
+          <div class="founder-includes"><h3>Included from day one</h3><ul><li>Full AI Readiness Report</li><li>Full prioritized Action Plan</li><li>Weekly automatic re-audits</li><li>Monitoring &amp; readiness history</li><li>Alerts when readiness drops</li></ul><a id="founder-cta" class="founder-cta" href="https://buy.stripe.com/5kQ5kCdeHd2Of7j8vC5Rm0L" target="_blank" rel="noopener noreferrer">Become a Founder — $39/month</a><p class="founder-reassurance">No long-term commitment. Cancel anytime.</p><p id="founder-status" class="form-note" role="status">Secure checkout opens with Stripe.</p></div>
         </section>
       </div>
+
+      <section class="faq panel" aria-labelledby="faq-title">
+        <p class="section-kicker">Answers before you start</p><h2 id="faq-title">Frequently Asked Questions</h2>
+        <div class="faq-list">
+          <details><summary>What exactly does AgentReady analyze?</summary><p>AgentReady analyzes the public signals available on your website and evaluates three dimensions: Visibility, Understanding and Buyability. It shows what could be verified, where evidence is limited, and what you should prioritize next.</p></details>
+          <details><summary>What do Visibility, Understanding and Buyability mean?</summary><p>Visibility measures whether AI agents can discover useful information about your business. Understanding measures whether they can clearly interpret what you offer. Buyability measures whether they can identify and navigate toward the next commercial action, such as buying, booking or contacting you.</p></details>
+          <details><summary>Do I need technical skills?</summary><p>No. AgentReady is designed to turn technical AI-readiness signals into clear evidence, scores and prioritized actions that business owners, marketers and small teams can understand.</p></details>
+          <details><summary>Why does AgentReady sometimes show a dash instead of a score?</summary><p>AgentReady does not invent certainty when there is not enough observable evidence. If a dimension cannot be assessed reliably from the public signals available, it shows that limitation instead of manufacturing a misleading score.</p></details>
+          <details><summary>Am I locked into a contract?</summary><p>No. The Founder Plan is a month-to-month subscription. You can cancel anytime.</p></details>
+          <details><summary>What happens to my Founder price if I cancel?</summary><p>Your $39/month Founder price remains locked while your subscription stays continuously active. If you cancel and later return, the Founder price may no longer be available and the current standard price will apply.</p></details>
+        </div>
+      </section>
 
       <footer><p>AgentReady · Evidence-first AI website readiness</p></footer>
     </main>
