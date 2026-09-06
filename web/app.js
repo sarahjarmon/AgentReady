@@ -14,7 +14,6 @@ const emailInput = document.querySelector("#email");
 const emailStatus = document.querySelector("#email-status");
 const fullReport = document.querySelector("#full-report");
 const founderOffer = document.querySelector("#founder-offer");
-const founderCta = document.querySelector("#founder-cta");
 const founderStatus = document.querySelector("#founder-status");
 const storageKey = "agentready.webmcp.last-audit.v1";
 let currentAudit = null;
@@ -63,8 +62,8 @@ function render(result) {
   reportCapture.hidden = false;
   setReportAccess(false);
   emailForm.reset();
-  emailStatus.textContent = "Your email is saved only after you submit this form. Email delivery is a beta placeholder and is not connected yet.";
-  founderStatus.textContent = "Founder checkout is a Stripe placeholder for this beta.";
+  emailStatus.textContent = "Your report unlocks on this page after you submit this form.";
+  founderStatus.textContent = "Secure checkout opens with Stripe after your report is unlocked.";
   document.querySelector("#audited-url").textContent = result.final_url || result.target_url;
   document.querySelector("#audit-scope").textContent = result.audit_scope;
   document.querySelector("#acquisition-method").textContent = result.acquisition?.method === "rendered" ? "Rendered page analyzed" : "Public page analyzed";
@@ -114,23 +113,23 @@ form.addEventListener("submit", async (event) => {
   currentAudit = null;
   setReportAccess(false);
   submit.disabled = true; submit.textContent = "Auditing…";
-  try { await runAudit(urlInput.value.trim()); }
+  try { await runAudit(urlInput.value.trim()); results.scrollIntoView({ behavior: "smooth", block: "start" }); }
   catch (error) { showError(error instanceof Error ? error.message : "The audit could not be completed."); }
   finally { submit.disabled = false; submit.innerHTML = "Run Free Audit <span aria-hidden=\"true\">→</span>"; }
 });
 
-// Lead storage is server-side; email delivery remains a separate future integration.
+// Lead storage is server-side; capture unlocks this on-page report.
 async function captureLeadFromForm(event) {
   event.preventDefault();
   emailInput.value = emailInput.value.trim().toLowerCase();
   if (!emailInput.validity.valid) { emailStatus.textContent = "Enter a valid email address to continue."; emailInput.focus(); return; }
-  if (!currentAudit) { emailStatus.textContent = "Run an audit before requesting your report."; return; }
+  if (!currentAudit) { emailStatus.textContent = "Run an audit before unlocking your report."; return; }
   const captureButton = emailForm.querySelector("button[type=submit]");
   captureButton.disabled = true;
   emailStatus.textContent = "Saving your details…";
   try {
     await submitLead(buildLeadPayload(emailInput.value, currentAudit));
-    emailStatus.textContent = "Your report is unlocked below. Email delivery will be connected in a future beta update.";
+    emailStatus.textContent = "Your report is unlocked below.";
     setReportAccess(true);
     fullReport.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
@@ -141,11 +140,6 @@ async function captureLeadFromForm(event) {
 }
 
 emailForm.addEventListener("submit", captureLeadFromForm);
-
-// Placeholder only: Stripe checkout is intentionally not connected in this branch.
-founderCta.addEventListener("click", () => {
-  founderStatus.textContent = "Founder checkout will be connected to Stripe before paid access opens.";
-});
 
 renderMonitoring();
 registerAuditTool(runAudit, setStatus);
