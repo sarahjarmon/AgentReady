@@ -1,9 +1,16 @@
 export function aiReadinessScore(result) {
   const observed = result?.readiness?.observed_readiness;
-  if (Number.isFinite(observed)) return observed;
+  if (displayableScore(observed) !== null) return displayableScore(observed);
   const scores = result?.scores || {};
   const values = [scores.visibility, scores.understanding, scores.buyability];
-  return values.every(Number.isFinite) ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : null;
+  const numeric = values.map(displayableScore);
+  return numeric.every((value) => value !== null) ? Math.round(numeric.reduce((sum, value) => sum + value, 0) / numeric.length) : null;
+}
+
+export function displayableScore(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) return Number(value);
+  return null;
 }
 
 export function primaryFinding(result) {

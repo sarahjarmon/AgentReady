@@ -296,10 +296,26 @@ export function inspectHtml(html, targetUrl, options = {}) {
   } else if (!capabilityValues.identity) {
     actionsOut.push({ priority: "medium", title: "Clarify the organization and its purpose", reason: "No clear title or primary heading was observed in the public HTML." });
   }
-  const scores = { visibility, understanding: limited ? null : understanding, buyability: limited ? null : buyability };
+  const evidenceCount = Object.values(evidence).reduce((sum, items) => sum + items.length, 0);
+  const usableBase = !acquisition.hardLimited && acquisition.visible.trim().length >= 20 && evidenceCount >= 1;
+  const dimensionScoreable = {
+    visibility: usableBase && evidence.visibility.length >= 2,
+    understanding: usableBase && evidence.understanding.length >= 1,
+    buyability: usableBase,
+  };
+  const scoreable = !limited || usableBase;
+  const confidenceLevel = !scoreable ? "LOW" : limited ? "LOW" : method === "rendered" ? "MEDIUM" : "HIGH";
+  const scores = { visibility: dimensionScoreable.visibility ? visibility : null, understanding: dimensionScoreable.understanding ? understanding : null, buyability: dimensionScoreable.buyability ? buyability : null };
+  const observedReadiness = Object.values(scores).every((value) => Number.isFinite(value)) ? Math.round((visibility + understanding + buyability) / 3) : null;
+  const gaps = [
+    !evidence.buyability.length ? "No buyability signal was observed in the content apt4ai could inspect." : null,
+    !capabilityValues.offer ? "offer details are not fully observable" : null,
+    !capabilityValues.conversion ? "a commercial next step is not observable" : null,
+    !capabilityValues.pricing ? "pricing is not observable" : null,
+  ].filter(Boolean);
   return {
     status: limited ? "limited" : "complete", acquisition: { status: acquisition.status, method, renderer: options.renderer || null, render_attempted: Boolean(options.renderer), rendering_recommended: Boolean(acquisition.renderable && limited), monitoring_eligible: !limited && monitoringEligibility.eligible, monitoring_reason: limited ? "This audit has insufficient evidence for monitoring comparison." : monitoringEligibility.reason, explanation: limited ? "The acquired response may not represent the user-visible page. Missing capabilities are marked as insufficient evidence, not absent." : method === "rendered" ? "A rendered public page was analyzed after static acquisition appeared incomplete." : "The static HTML contained enough visible content for this bounded public-page audit.", reasons: acquisition.reasons },
-    target_url: targetUrl, audit_scope: AUDIT_SCOPE, scores, readiness: { observed_readiness: limited ? null : Math.round((visibility + understanding + buyability) / 3), state: limited ? "insufficient_evidence" : "observed" }, score_status: limited ? "insufficient_evidence" : "meaningful", capabilities, evidence, actions: actionsOut.slice(0, 4), summary: { title: title || "unknown", headings: headings.slice(0, 5), prices, commercial_actions: actions.values.slice(0, 5), journey },
+    target_url: targetUrl, audit_scope: AUDIT_SCOPE, scores, confidence: { overall: observedReadiness !== null ? confidenceLevel : "LOW", dimensions: Object.fromEntries(["visibility", "understanding", "buyability"].map((name) => [name, dimensionScoreable[name] ? confidenceLevel : "LOW"])) }, main_gap: gaps[0] || null, fix_potential: gaps.length >= 2 ? "HIGH" : gaps.length === 1 ? "MEDIUM" : "LOW", readiness: { observed_readiness: observedReadiness, state: observedReadiness !== null ? "observed" : "insufficient_evidence" }, score_status: observedReadiness !== null ? "meaningful" : "insufficient_evidence", capabilities, evidence, actions: actionsOut.slice(0, 4), summary: { title: title || "unknown", headings: headings.slice(0, 5), prices, commercial_actions: actions.values.slice(0, 5), journey },
   };
 }
 

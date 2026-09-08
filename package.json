@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Minimal Netlify and WebMCP demonstration for AgentReady.",
   "scripts": {
-    "test:web": "node --test tests/web-audit.test.mjs",
+    "test:web": "node --test tests/web-audit.test.mjs tests/remediation.test.mjs",
     "dev": "npx netlify dev"
   },
   "devDependencies": {
