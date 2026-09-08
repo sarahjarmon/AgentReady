@@ -96,9 +96,10 @@ function render(result) {
     acquisition.innerHTML = `<p class="section-kicker">${esc(result.acquisition?.status || "limited")} evidence</p><h2>${esc(result.acquisition?.status === "blocked" ? "This response cannot be audited reliably" : "This page needs more observable evidence")}</h2><p>${esc(result.acquisition?.explanation || "The audit could not establish enough evidence.")}</p>${result.acquisition?.reasons?.length ? `<ul>${result.acquisition.reasons.map((reason) => `<li>${esc(reason)}</li>`).join("")}</ul>` : ""}`;
   }
   const actions = result.actions.length ? result.actions.map((item, index) => `<li><span class="priority ${esc(item.priority)}">${esc(item.priority)}</span><strong>${esc(item.title)}</strong><p>${esc(item.reason)}</p><button class="fix-it" type="button" data-action-index="${index}">FIX IT</button></li>`).join("") : "<li><strong>No missing signal was prioritized in this bounded page audit.</strong></li>";
-  document.querySelector("#actions-list").innerHTML = "";
+  document.querySelector("#actions-list").innerHTML = paidVerified ? actions : "";
+  if (paidVerified) document.querySelectorAll(".fix-it").forEach((button) => button.addEventListener("click", () => openRemediation(result.actions[Number(button.dataset.actionIndex)])));
   const groups = Object.entries(result.evidence).map(([group, evidence]) => `<section><h3>${esc(group)}</h3>${evidence.length ? `<ul>${evidence.map((item) => `<li><strong>${esc(item.label)}</strong><span>${esc(item.excerpt)}</span></li>`).join("")}</ul>` : "<p class=\"muted\">No supporting signal observed.</p>"}</section>`).join("");
-  document.querySelector("#evidence-list").innerHTML = groups;
+  document.querySelector("#evidence-list").innerHTML = paidVerified ? groups : "";
   renderMonitoring();
 }
 
