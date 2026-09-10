@@ -58,3 +58,38 @@ export async function submitLead(payload, fetchImpl = fetch) {
   if (!response.ok || result?.ok !== true) throw new Error(result?.error || "We couldn't save your details. Please try again.");
   return result;
 }
+
+export async function createFounderCheckout(identity, fetchImpl = fetch) {
+  let response;
+  try {
+    response = await fetchImpl("/.netlify/functions/create-checkout", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: identity?.email, website_url: identity?.website_url }),
+    });
+  } catch {
+    throw new Error("Checkout is temporarily unavailable. Please try again.");
+  }
+  let result = null;
+  try { result = await response.json(); } catch { /* Use the safe fallback below. */ }
+  if (!response.ok || result?.ok !== true || typeof result.url !== "string") {
+    throw new Error(result?.error || "Checkout is temporarily unavailable. Please try again.");
+  }
+  return result.url;
+}
+
+export function createCheckoutGate(openCheckout) {
+  let inFlight = false;
+  return async (identity) => {
+    if (inFlight) return null;
+    inFlight = true;
+    try { return await openCheckout(identity); }
+    finally { inFlight = false; }
+  };
+}
+
+export function checkoutConfirmationState(result) {
+  return result?.ok === true && result.active === true
+    ? { title: "Welcome to AgentReady", message: "Your Founder Plan is active. Your $39/month Founder price is locked while your subscription remains active.", confirmed: true }
+    : { title: "Confirming your subscription…", message: "We’re confirming your verified Stripe subscription. This usually takes a moment.", confirmed: false };
+}
