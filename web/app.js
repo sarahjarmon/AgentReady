@@ -76,7 +76,7 @@ function render(result) {
   setReportAccess(false);
   emailForm.reset();
   emailStatus.textContent = "Your report unlocks on this page after you submit this form.";
-  founderStatus.textContent = "Secure checkout opens with Stripe after your report is unlocked.";
+  founderStatus.textContent = "";
   document.querySelector("#audited-url").textContent = result.final_url || result.target_url;
   document.querySelector("#audit-scope").textContent = result.audit_scope;
   document.querySelector("#acquisition-method").textContent = result.acquisition?.method === "rendered" ? "Rendered page analyzed" : "Public page analyzed";
