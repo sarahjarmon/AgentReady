@@ -1,5 +1,5 @@
 import { registerAuditTool } from "./webmcp.js";
-import { aiReadinessScore, buildLeadPayload, displayableScore, primaryFinding, reportAccessState, submitLead } from "./commercial.js";
+import { aiReadinessScore, buildLeadPayload, createCheckoutGate, createFounderCheckout, displayableScore, primaryFinding, reportAccessState, submitLead } from "./commercial.js";
 import { isMonitoringComparable, nextMonitoringState } from "./monitoring.js";
 import { remediationForAction, recheckState } from "./remediation.js";
 
@@ -23,6 +23,11 @@ let currentAudit = null;
 let selectedAction = null;
 let emailUnlocked = false;
 let paidVerified = false;
+const startFounderCheckout = createCheckoutGate(async (identity) => {
+  const url = await createFounderCheckout(identity);
+  window.location.assign(url);
+  return url;
+});
 
 function esc(value) {
   const node = document.createElement("span");
@@ -103,6 +108,23 @@ function render(result) {
   renderMonitoring();
 }
 
+async function handleFounderCheckout(event) {
+  event.preventDefault();
+  if (!currentAudit || !emailUnlocked || !emailInput.value.trim()) {
+    founderStatus.textContent = "Submit your email to unlock checkout.";
+    return;
+  }
+  const button = event.currentTarget;
+  button.disabled = true;
+  founderStatus.textContent = "Opening secure Stripe checkout…";
+  try {
+    await startFounderCheckout({ email: emailInput.value, website_url: currentAudit.final_url || currentAudit.target_url });
+  } catch (error) {
+    founderStatus.textContent = error instanceof Error ? error.message : "Checkout is temporarily unavailable. Please try again.";
+    button.disabled = false;
+  }
+}
+
 function openRemediation(action) {
   selectedAction = action;
   const plan = remediationForAction(action, currentAudit);
@@ -176,10 +198,12 @@ function renderEmailPreview() {
   const plan = remediationForAction(action, currentAudit);
   const preview = document.querySelector("#remediation-preview");
   preview.hidden = false;
-  preview.innerHTML = `<p class="section-kicker">Preview of your fix plan</p><h3>${esc(plan.title)}</h3><p>${esc(plan.why_it_matters || "This finding affects how clearly visitors can understand the offer and take the next step.")}</p><p><strong>1. ${esc(plan.steps[0] || "Review the observed gap and apply a supported correction.")}</strong></p><p>We found ${currentAudit.actions.length} concrete fix${currentAudit.actions.length === 1 ? "" : "es"} for this issue.</p><a class="founder-cta" href="https://buy.stripe.com/5kQ5kCdeHd2Of7j8vC5Rm0L" target="_blank" rel="noopener noreferrer">Unlock Full Fix Plan — $39/month</a><p class="form-note">Get every prioritized fix, full evidence, rechecks and continuous monitoring.</p>`;
+  preview.innerHTML = `<p class="section-kicker">Preview of your fix plan</p><h3>${esc(plan.title)}</h3><p>${esc(plan.why_it_matters || "This finding affects how clearly visitors can understand the offer and take the next step.")}</p><p><strong>1. ${esc(plan.steps[0] || "Review the observed gap and apply a supported correction.")}</strong></p><p>We found ${currentAudit.actions.length} concrete fix${currentAudit.actions.length === 1 ? "" : "es"} for this issue.</p><button id="preview-founder-cta" class="founder-cta" type="button">Unlock Full Fix Plan — $39/month</button><p class="form-note">Get every prioritized fix, full evidence, rechecks and continuous monitoring.</p>`;
+  document.querySelector("#preview-founder-cta").addEventListener("click", handleFounderCheckout);
 }
 
 emailForm.addEventListener("submit", captureLeadFromForm);
+document.querySelector("#founder-cta")?.addEventListener("click", handleFounderCheckout);
 
 renderMonitoring();
 try {
