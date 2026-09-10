@@ -1,5 +1,5 @@
 import { registerAuditTool } from "./webmcp.js";
-import { aiReadinessScore, buildLeadPayload, createCheckoutGate, createFounderCheckout, displayableScore, primaryFinding, reportAccessState, submitLead } from "./commercial.js";
+import { aiReadinessScore, buildLeadPayload, createCheckoutGate, createFounderCheckout, displayableScore, normalizeAuditUrl, primaryFinding, reportAccessState, submitLead } from "./commercial.js";
 import { isMonitoringComparable, nextMonitoringState } from "./monitoring.js";
 import { remediationForAction, recheckState } from "./remediation.js";
 
@@ -56,8 +56,9 @@ function setReportAccess(emailSubmitted) {
 
 async function runAudit(url) {
   paidVerified = false;
+  const normalizedUrl = normalizeAuditUrl(url);
   const response = await fetch("/.netlify/functions/audit", {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }),
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: normalizedUrl }),
   });
   const result = await response.json();
   if (!response.ok || result.status === "error") throw new Error(result.error || "The audit could not be completed.");
@@ -164,7 +165,7 @@ form.addEventListener("submit", async (event) => {
   currentAudit = null;
   setReportAccess(false);
   submit.disabled = true; submit.textContent = "Auditing…";
-  try { await runAudit(urlInput.value.trim()); results.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  try { await runAudit(normalizeAuditUrl(urlInput.value)); results.scrollIntoView({ behavior: "smooth", block: "start" }); }
   catch (error) { showError(error instanceof Error ? error.message : "The audit could not be completed."); }
   finally { submit.disabled = false; submit.innerHTML = "Run Free Audit <span aria-hidden=\"true\">→</span>"; }
 });

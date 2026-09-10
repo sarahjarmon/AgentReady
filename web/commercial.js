@@ -13,6 +13,12 @@ export function displayableScore(value) {
   return null;
 }
 
+export function normalizeAuditUrl(value) {
+  const input = String(value || "").trim();
+  if (!input) return "";
+  return /^https?:\/\//i.test(input) ? input : `https://${input}`;
+}
+
 export function primaryFinding(result) {
   const action = (result?.actions || []).find((item) => item.priority === "high") || result?.actions?.[0];
   if (action) return { title: action.title, reason: action.reason, priority: action.priority || "medium" };
