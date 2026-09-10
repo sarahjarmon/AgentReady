@@ -339,8 +339,25 @@ export async function processStripeEvent(event, dependencies = {}) {
         onboarding = result?.onboarding_ready === true;
       }
     }
+  } else if (event.type === "invoice.payment_failed" && object?.subscription) {
+    // Resolve the subscription server-side so a failed invoice cannot leave a
+    // previously active lead looking active indefinitely.
+    const mappedLead = await findLeadBySubscription(object.subscription, dependencies);
+    const subscription = await stripeRequest(`/v1/subscriptions/${encodeURIComponent(object.subscription)}`, {}, dependencies);
+    const status = typeof subscription?.status === "string" && subscription.status ? subscription.status : null;
+    if (!status) throw new BillingError("Subscription status unavailable.", 502, "upstream");
+    const customer = subscription?.customer || object.customer || mappedLead?.stripe_customer_id || null;
+    await recordSubscriptionState({ id: object.subscription, customer, status }, dependencies);
+    const leadId = mappedLead?.id || founderLeadId(subscription, env);
+    if (leadId) {
+      await updateLead(leadId, {
+        stripe_customer_id: customer,
+        stripe_subscription_id: object.subscription,
+        subscription_status: status,
+      }, dependencies);
+    }
   } else if (["customer.subscription.created", "customer.subscription.updated"].includes(event.type)) {
-    if (object?.metadata?.agentready_offer !== FOUNDER_OFFER) await recordSubscriptionState(object, dependencies);
+    await recordSubscriptionState(object, dependencies);
     const mappedLead = await findLeadBySubscription(object?.id, dependencies);
     const leadId = mappedLead?.id || founderLeadId(object, env);
     if (leadId) {
@@ -354,7 +371,7 @@ export async function processStripeEvent(event, dependencies = {}) {
       }, dependencies);
     }
   } else if (event.type === "customer.subscription.deleted") {
-    if (object?.metadata?.agentready_offer !== FOUNDER_OFFER) await recordSubscriptionState(object, dependencies);
+    await recordSubscriptionState(object, dependencies);
     const mappedLead = await findLeadBySubscription(object?.id, dependencies);
     const leadId = mappedLead?.id || founderLeadId(object, env);
     if (leadId) await updateLead(leadId, {
