@@ -1,5 +1,5 @@
 import { registerAuditTool } from "./webmcp.js";
-import { aiReadinessScore, buildLeadPayload, createCheckoutGate, createFounderCheckout, displayableScore, normalizeAuditUrl, primaryFinding, reportAccessState, submitLead } from "./commercial.js";
+import { aiReadinessScore, buildLeadPayload, captureAttribution, createCheckoutGate, createFounderCheckout, displayableScore, normalizeAuditUrl, primaryFinding, reportAccessState, submitLead, trackConversion } from "./commercial.js";
 import { isMonitoringComparable, nextMonitoringState } from "./monitoring.js";
 import { remediationForAction, recheckState } from "./remediation.js";
 
@@ -19,12 +19,14 @@ const founderStatus = document.querySelector("#founder-status");
 const remediationPanel = document.querySelector("#remediation-panel");
 const storageKey = "agentready.webmcp.last-audit.v1";
 const auditContextKey = "agentready.audit-context.v1";
+const trackedAuditKey = "apt4ai.audit-completed.v1";
 let currentAudit = null;
 let selectedAction = null;
 let emailUnlocked = false;
 let paidVerified = false;
 const startFounderCheckout = createCheckoutGate(async (identity) => {
   const url = await createFounderCheckout(identity);
+  trackConversion("checkout_started", { website_url: identity.website_url });
   window.location.assign(url);
   return url;
 });
@@ -165,7 +167,15 @@ form.addEventListener("submit", async (event) => {
   currentAudit = null;
   setReportAccess(false);
   submit.disabled = true; submit.textContent = "Auditing…";
-  try { await runAudit(normalizeAuditUrl(urlInput.value)); results.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  try {
+    const result = await runAudit(normalizeAuditUrl(urlInput.value));
+    const auditKey = result.final_url || result.target_url || normalizeAuditUrl(urlInput.value);
+    if (localStorage.getItem(trackedAuditKey) !== auditKey) {
+      localStorage.setItem(trackedAuditKey, auditKey);
+      trackConversion("audit_completed", { website_url: auditKey });
+    }
+    results.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
   catch (error) { showError(error instanceof Error ? error.message : "The audit could not be completed."); }
   finally { submit.disabled = false; submit.innerHTML = "Run Free Audit <span aria-hidden=\"true\">→</span>"; }
 });
@@ -214,3 +224,4 @@ try {
   }
 } catch { /* Ignore unavailable local storage. */ }
 registerAuditTool(runAudit, setStatus);
+captureAttribution();

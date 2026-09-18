@@ -19,6 +19,29 @@ export function normalizeAuditUrl(value) {
   return /^https?:\/\//i.test(input) ? input : `https://${input}`;
 }
 
+const attributionStorageKey = "apt4ai.attribution.v1";
+const attributionNames = ["oppref", "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"];
+
+export function captureAttribution(locationLike = window.location, storage = window.localStorage) {
+  const params = new URLSearchParams(locationLike.search || "");
+  const captured = Object.fromEntries(attributionNames.filter((name) => params.get(name)).map((name) => [name, params.get(name)]));
+  try {
+    if (Object.keys(captured).length) storage.setItem(attributionStorageKey, JSON.stringify(captured));
+    return JSON.parse(storage.getItem(attributionStorageKey) || "{}");
+  } catch { return captured; }
+}
+
+export function trackConversion(eventName, details = {}, target = window) {
+  const payload = { event: eventName, attribution: captureAttribution(), ...details };
+  target.dispatchEvent(new CustomEvent("apt4ai_conversion", { detail: payload }));
+  if (typeof target.apt4aiConversion === "function") target.apt4aiConversion(payload);
+  if (typeof target.oaiq === "function") {
+    if (eventName === "audit_completed") target.oaiq("measure", "custom", { type: "custom" }, { custom_event_name: "audit_completed" });
+    if (eventName === "checkout_started") target.oaiq("measure", "checkout_started", { type: "contents" });
+  }
+  return payload;
+}
+
 export function primaryFinding(result) {
   const action = (result?.actions || []).find((item) => item.priority === "high") || result?.actions?.[0];
   if (action) return { title: action.title, reason: action.reason, priority: action.priority || "medium" };
