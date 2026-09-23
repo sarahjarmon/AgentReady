@@ -89,7 +89,7 @@ test("a new audit resets previously unlocked commercial report access", () => {
 
 test("paid entitlement cookie is signed, HttpOnly, and website-bound", async () => {
   const lead = { id: "lead_paid", website_url: "https://example.test/services", stripe_subscription_id: "sub_paid", subscription_status: "active", founder_price_locked: true };
-  const token = entitlementCookie(lead, lead.website_url, entitlementTestEnv, 1_000);
+  const token = entitlementCookie(lead, lead.website_url, entitlementTestEnv);
   const request = new Request("https://demo.test/.netlify/functions/entitlement-status?website_url=https%3A%2F%2Fexample.test%2Fservices", { headers: { cookie: `agentready_entitlement=${token}` } });
   const state = await currentEntitlement(request, lead.website_url, { env: entitlementTestEnv, fetchImpl: async (url) => { assert.match(String(url), /id=eq\.lead_paid/); return new Response(JSON.stringify([lead]), { status: 200 }); } });
   assert.equal(state.active, true);
