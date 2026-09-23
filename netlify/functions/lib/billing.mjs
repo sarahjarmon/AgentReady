@@ -5,6 +5,8 @@ import { validatePublicUrl } from "./audit-core.mjs";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const FOUNDER_OFFER = "founder_39";
 const MAX_BODY_BYTES = 8_192;
+const ENTITLEMENT_COOKIE = "agentready_entitlement";
+const ENTITLEMENT_TTL_SECONDS = 60 * 60 * 24 * 30;
 
 export class BillingError extends Error {
   constructor(message, status = 400, code = "invalid") {
@@ -19,6 +21,49 @@ export function jsonResponse(body, status, headers = {}) {
     status,
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers },
   });
+}
+
+function entitlementSecret(env) {
+  const secret = env.AGENTREADY_ENTITLEMENT_SECRET;
+  if (!secret || secret.length < 32) throw new BillingError("Subscription confirmation is not configured yet. Please try again later.", 503, "configuration");
+  return secret;
+}
+
+function encodeEntitlement(payload) {
+  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+}
+
+function signEntitlement(value, env) {
+  return createHmac("sha256", entitlementSecret(env)).update(value, "utf8").digest("base64url");
+}
+
+export function entitlementCookie(lead, websiteUrl, env, nowSeconds = Math.floor(Date.now() / 1000)) {
+  const payload = encodeEntitlement({ lead_id: lead.id, website_url: websiteUrl, exp: nowSeconds + ENTITLEMENT_TTL_SECONDS });
+  return `${payload}.${signEntitlement(payload, env)}`;
+}
+
+function readCookie(request, name) {
+  return request.headers.get("cookie")?.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.slice(name.length + 1) || "";
+}
+
+export function parseEntitlementCookie(request, env, nowSeconds = Math.floor(Date.now() / 1000)) {
+  const value = readCookie(request, ENTITLEMENT_COOKIE);
+  const [payload, signature] = value.split(".");
+  if (!payload || !signature) return null;
+  const expected = signEntitlement(payload, env);
+  if (signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    return parsed?.lead_id && parsed?.website_url && Number(parsed.exp) > nowSeconds ? parsed : null;
+  } catch { return null; }
+}
+
+export function entitlementCookieHeader(value, maxAge = ENTITLEMENT_TTL_SECONDS) {
+  return `${ENTITLEMENT_COOKIE}=${value}; Max-Age=${maxAge}; Path=/; HttpOnly; Secure; SameSite=Lax`;
+}
+
+export function clearEntitlementCookieHeader() {
+  return `${ENTITLEMENT_COOKIE}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax`;
 }
 
 export function normalizeLeadIdentity(input) {
@@ -393,8 +438,22 @@ export async function checkoutActivationState(sessionId, dependencies = {}) {
   const lead = await findLeadById(leadId, dependencies);
   const active = session.mode === "subscription" && session.payment_status === "paid" && subscription.status === "active"
     && lead?.stripe_subscription_id === subscription.id && lead?.subscription_status === "active" && lead?.founder_price_locked === true;
-  return { active, pending: !active };
+  return { active, pending: !active, lead: active ? lead : null };
 }
+
+export async function currentEntitlement(request, websiteUrl, dependencies = {}) {
+  const env = dependencies.env || process.env;
+  const token = parseEntitlementCookie(request, env);
+  if (!token || typeof websiteUrl !== "string") return { active: false };
+  let normalized;
+  try { normalized = validatePublicUrl(websiteUrl).toString(); } catch { return { active: false }; }
+  if (token.website_url !== normalized) return { active: false };
+  const lead = await findLeadById(token.lead_id, dependencies);
+  const active = Boolean(lead && lead.website_url === normalized && lead.subscription_status === "active" && lead.founder_price_locked === true && lead.stripe_subscription_id);
+  return { active, website_url: active ? normalized : null };
+}
+
+export { ENTITLEMENT_COOKIE };
 
 export function checkoutOrigin(request) {
   const url = new URL(request.url);

@@ -4,6 +4,8 @@ import test from "node:test";
 import { auditPublicPage, createRendererFromEnv, EvidenceState, inspectHtml, isBlockedHostname, isPrivateIp, validatePublicUrl } from "../netlify/functions/lib/audit-core.mjs";
 import auditHandler from "../netlify/functions/audit.mjs";
 import leadHandler from "../netlify/functions/capture-lead.mjs";
+import entitlementHandler from "../netlify/functions/entitlement-status.mjs";
+import { currentEntitlement, entitlementCookie, entitlementCookieHeader } from "../netlify/functions/lib/billing.mjs";
 import { aiReadinessScore, buildLeadPayload, primaryFinding, reportAccessState, submitLead } from "../web/commercial.js";
 import { isMonitoringComparable, nextMonitoringState } from "../web/monitoring.js";
 import { toWebMcpResult } from "../web/webmcp.js";
@@ -17,6 +19,7 @@ const publicResolver = async () => [{ address: "93.184.216.34", family: 4 }];
 const htmlResponse = (html) => new Response(html, { status: 200, headers: { "content-type": "text/html" } });
 const successfulRenderer = (html = commercialPage, finalUrl = "https://example.test/rendered") => ({ renderPage: async () => ({ status: "success", rendered: true, html, finalUrl, metadata: { provider: "test-renderer", timing_ms: 12 } }) });
 const supabaseTestEnv = { SUPABASE_URL: "https://project.supabase.co", SUPABASE_SECRET_KEY: "server-only-test-value" };
+const entitlementTestEnv = { ...supabaseTestEnv, AGENTREADY_ENTITLEMENT_SECRET: "01234567890123456789012345678901" };
 const validLead = (overrides = {}) => ({
   email: "Sarah@example.test ",
   website_url: "https://example.test/services",
@@ -82,6 +85,32 @@ test("a new audit resets previously unlocked commercial report access", () => {
   const stateForNewAudit = reportAccessState(false);
   assert.equal(stateForNewAudit.fullReportHidden, true);
   assert.equal(stateForNewAudit.founderOfferHidden, true);
+});
+
+test("paid entitlement cookie is signed, HttpOnly, and website-bound", async () => {
+  const lead = { id: "lead_paid", website_url: "https://example.test/services", stripe_subscription_id: "sub_paid", subscription_status: "active", founder_price_locked: true };
+  const token = entitlementCookie(lead, lead.website_url, entitlementTestEnv, 1_000);
+  const request = new Request("https://demo.test/.netlify/functions/entitlement-status?website_url=https%3A%2F%2Fexample.test%2Fservices", { headers: { cookie: `agentready_entitlement=${token}` } });
+  const state = await currentEntitlement(request, lead.website_url, { env: entitlementTestEnv, fetchImpl: async (url) => { assert.match(String(url), /id=eq\.lead_paid/); return new Response(JSON.stringify([lead]), { status: 200 }); } });
+  assert.equal(state.active, true);
+  assert.match(entitlementCookieHeader(token), /HttpOnly/);
+  const wrongSite = await currentEntitlement(request, "https://other.test/", { env: entitlementTestEnv, fetchImpl: async () => { throw new Error("must not query mismatched site"); } });
+  assert.equal(wrongSite.active, false);
+});
+
+test("entitlement endpoint rechecks active subscription state server-side", async () => {
+  const lead = { id: "lead_paid", website_url: "https://example.test/services", stripe_subscription_id: "sub_paid", subscription_status: "canceled", founder_price_locked: true };
+  const token = entitlementCookie({ id: lead.id }, lead.website_url, entitlementTestEnv);
+  const response = await entitlementHandler(new Request("https://demo.test/.netlify/functions/entitlement-status?website_url=https%3A%2F%2Fexample.test%2Fservices", { headers: { cookie: `agentready_entitlement=${token}` } }), { env: entitlementTestEnv, fetchImpl: async () => new Response(JSON.stringify([lead]), { status: 200 }) });
+  assert.deepEqual(await response.json(), { ok: true, active: false });
+});
+
+test("paid UI no longer uses the localStorage paid flag", async () => {
+  const app = await (await import("node:fs/promises")).readFile(new URL("../web/app.js", import.meta.url), "utf8");
+  const success = await (await import("node:fs/promises")).readFile(new URL("../web/success.js", import.meta.url), "utf8");
+  assert.doesNotMatch(app, /agentready\.paid-verified/);
+  assert.doesNotMatch(success, /agentready\.paid-verified/);
+  assert.match(app, /entitlement-status/);
 });
 
 test("valid lead submission is normalized and upserted only by the server-side Function", async () => {

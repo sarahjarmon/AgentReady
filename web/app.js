@@ -53,17 +53,26 @@ function hideError() { errorBox.hidden = true; errorBox.textContent = ""; }
 
 function setReportAccess(emailSubmitted) {
   fullReport.hidden = !paidVerified;
-  founderOffer.hidden = !emailSubmitted;
+  founderOffer.hidden = paidVerified || !emailSubmitted;
+  reportCapture.hidden = paidVerified;
+}
+
+async function retrieveEntitlement(websiteUrl) {
+  try {
+    const response = await fetch(`/.netlify/functions/entitlement-status?website_url=${encodeURIComponent(websiteUrl)}`, { credentials: "same-origin", headers: { accept: "application/json" } });
+    const result = await response.json();
+    return response.ok && result?.ok === true && result.active === true;
+  } catch { return false; }
 }
 
 async function runAudit(url) {
-  paidVerified = false;
   const normalizedUrl = normalizeAuditUrl(url);
   const response = await fetch("/.netlify/functions/audit", {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: normalizedUrl }),
   });
   const result = await response.json();
   if (!response.ok || result.status === "error") throw new Error(result.error || "The audit could not be completed.");
+  paidVerified = await retrieveEntitlement(result.final_url || result.target_url || normalizedUrl);
   saveMonitoring(result);
   render(result);
   return result;
@@ -75,10 +84,10 @@ function render(result) {
   emailUnlocked = false;
   emptyState.hidden = true;
   results.hidden = false;
-  reportCapture.hidden = false;
-  setReportAccess(false);
-  emailForm.reset();
-  emailStatus.textContent = "Your report unlocks on this page after you submit this form.";
+  reportCapture.hidden = paidVerified;
+  setReportAccess(paidVerified || emailUnlocked);
+  if (!paidVerified) emailForm.reset();
+  emailStatus.textContent = paidVerified ? "Your active Founder subscription unlocks this report." : "Your report unlocks on this page after you submit this form.";
   founderStatus.textContent = "";
   document.querySelector("#audited-url").textContent = result.final_url || result.target_url;
   document.querySelector("#audit-scope").textContent = result.audit_scope;
@@ -218,9 +227,14 @@ document.querySelector("#founder-cta")?.addEventListener("click", handleFounderC
 
 renderMonitoring();
 try {
-  if (localStorage.getItem("agentready.paid-verified.v1") === "1") {
-    const saved = JSON.parse(localStorage.getItem(auditContextKey) || "null");
-    if (saved) { paidVerified = true; emailUnlocked = true; render(saved); setReportAccess(true); }
+  const saved = JSON.parse(localStorage.getItem(auditContextKey) || "null");
+  if (saved) {
+    retrieveEntitlement(saved.final_url || saved.target_url).then((active) => {
+      paidVerified = active;
+      emailUnlocked = active;
+      render(saved);
+      setReportAccess(active);
+    });
   }
 } catch { /* Ignore unavailable local storage. */ }
 registerAuditTool(runAudit, setStatus);
