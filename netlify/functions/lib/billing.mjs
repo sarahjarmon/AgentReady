@@ -441,13 +441,12 @@ export async function checkoutActivationState(sessionId, dependencies = {}) {
   return { active, pending: !active, lead: active ? lead : null };
 }
 
-export async function currentEntitlement(request, websiteUrl, dependencies = {}) {
+export async function currentEntitlement(request, dependencies = {}) {
   const env = dependencies.env || process.env;
   const token = parseEntitlementCookie(request, env);
-  if (!token || typeof websiteUrl !== "string") return { active: false };
+  if (!token) return { active: false };
   let normalized;
-  try { normalized = validatePublicUrl(websiteUrl).toString(); } catch { return { active: false }; }
-  if (token.website_url !== normalized) return { active: false };
+  try { normalized = validatePublicUrl(token.website_url).toString(); } catch { return { active: false }; }
   const lead = await findLeadById(token.lead_id, dependencies);
   const active = Boolean(lead && lead.website_url === normalized && lead.subscription_status === "active" && lead.founder_price_locked === true && lead.stripe_subscription_id);
   return { active, website_url: active ? normalized : null };

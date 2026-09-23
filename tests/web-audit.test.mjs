@@ -90,18 +90,33 @@ test("a new audit resets previously unlocked commercial report access", () => {
 test("paid entitlement cookie is signed, HttpOnly, and website-bound", async () => {
   const lead = { id: "lead_paid", website_url: "https://example.test/services", stripe_subscription_id: "sub_paid", subscription_status: "active", founder_price_locked: true };
   const token = entitlementCookie(lead, lead.website_url, entitlementTestEnv);
-  const request = new Request("https://demo.test/.netlify/functions/entitlement-status?website_url=https%3A%2F%2Fexample.test%2Fservices", { headers: { cookie: `agentready_entitlement=${token}` } });
-  const state = await currentEntitlement(request, lead.website_url, { env: entitlementTestEnv, fetchImpl: async (url) => { assert.match(String(url), /id=eq\.lead_paid/); return new Response(JSON.stringify([lead]), { status: 200 }); } });
+  const request = new Request("https://demo.test/.netlify/functions/entitlement-status", { headers: { cookie: `agentready_entitlement=${token}` } });
+  const state = await currentEntitlement(request, { env: entitlementTestEnv, fetchImpl: async (url) => { assert.match(String(url), /id=eq\.lead_paid/); return new Response(JSON.stringify([lead]), { status: 200 }); } });
   assert.equal(state.active, true);
   assert.match(entitlementCookieHeader(token), /HttpOnly/);
-  const wrongSite = await currentEntitlement(request, "https://other.test/", { env: entitlementTestEnv, fetchImpl: async () => { throw new Error("must not query mismatched site"); } });
-  assert.equal(wrongSite.active, false);
+  const endpointResponse = await entitlementHandler(request, { env: entitlementTestEnv, fetchImpl: async () => new Response(JSON.stringify([lead]), { status: 200 }) });
+  assert.deepEqual(await endpointResponse.json(), { ok: true, active: true, website_url: lead.website_url });
 });
 
 test("entitlement endpoint rechecks active subscription state server-side", async () => {
   const lead = { id: "lead_paid", website_url: "https://example.test/services", stripe_subscription_id: "sub_paid", subscription_status: "canceled", founder_price_locked: true };
   const token = entitlementCookie({ id: lead.id }, lead.website_url, entitlementTestEnv);
-  const response = await entitlementHandler(new Request("https://demo.test/.netlify/functions/entitlement-status?website_url=https%3A%2F%2Fexample.test%2Fservices", { headers: { cookie: `agentready_entitlement=${token}` } }), { env: entitlementTestEnv, fetchImpl: async () => new Response(JSON.stringify([lead]), { status: 200 }) });
+  const response = await entitlementHandler(new Request("https://demo.test/.netlify/functions/entitlement-status", { headers: { cookie: `agentready_entitlement=${token}` } }), { env: entitlementTestEnv, fetchImpl: async () => new Response(JSON.stringify([lead]), { status: 200 }) });
+  assert.deepEqual(await response.json(), { ok: true, active: false });
+});
+
+test("forged, expired, and website-mismatched entitlements fail closed", async () => {
+  const lead = { id: "lead_paid", website_url: "https://example.test/services", stripe_subscription_id: "sub_paid", subscription_status: "active", founder_price_locked: true };
+  const valid = entitlementCookie(lead, lead.website_url, entitlementTestEnv);
+  const forged = `${valid.slice(0, -1)}${valid.endsWith("A") ? "B" : "A"}`;
+  const expired = entitlementCookie(lead, lead.website_url, entitlementTestEnv, 1_000);
+  const requestFor = (token) => new Request("https://demo.test/.netlify/functions/entitlement-status", { headers: { cookie: `agentready_entitlement=${token}` } });
+  for (const request of [requestFor(forged), requestFor(expired)]) {
+    const response = await entitlementHandler(request, { env: entitlementTestEnv, fetchImpl: async () => { throw new Error("invalid entitlement must not query lead"); } });
+    assert.deepEqual(await response.json(), { ok: true, active: false });
+  }
+  const mismatchedLead = { ...lead, website_url: "https://other.test/" };
+  const response = await entitlementHandler(requestFor(valid), { env: entitlementTestEnv, fetchImpl: async () => new Response(JSON.stringify([mismatchedLead]), { status: 200 }) });
   assert.deepEqual(await response.json(), { ok: true, active: false });
 });
 

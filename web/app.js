@@ -57,22 +57,25 @@ function setReportAccess(emailSubmitted) {
   reportCapture.hidden = paidVerified;
 }
 
-async function retrieveEntitlement(websiteUrl) {
+async function retrieveEntitlement() {
   try {
-    const response = await fetch(`/.netlify/functions/entitlement-status?website_url=${encodeURIComponent(websiteUrl)}`, { credentials: "same-origin", headers: { accept: "application/json" } });
+    const response = await fetch("/.netlify/functions/entitlement-status", { credentials: "same-origin", headers: { accept: "application/json" } });
     const result = await response.json();
-    return response.ok && result?.ok === true && result.active === true;
+    return response.ok && result?.ok === true && result.active === true && typeof result.website_url === "string" ? result : null;
   } catch { return false; }
 }
 
-async function runAudit(url) {
+async function runAudit(url, { entitlementAlreadyVerified = false } = {}) {
   const normalizedUrl = normalizeAuditUrl(url);
   const response = await fetch("/.netlify/functions/audit", {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: normalizedUrl }),
   });
   const result = await response.json();
   if (!response.ok || result.status === "error") throw new Error(result.error || "The audit could not be completed.");
-  paidVerified = await retrieveEntitlement(result.final_url || result.target_url || normalizedUrl);
+  if (!entitlementAlreadyVerified) {
+    const entitlement = await retrieveEntitlement();
+    paidVerified = Boolean(entitlement?.active && entitlement.website_url === normalizeAuditUrl(result.final_url || result.target_url || normalizedUrl));
+  }
   saveMonitoring(result);
   render(result);
   return result;
@@ -226,16 +229,24 @@ emailForm.addEventListener("submit", captureLeadFromForm);
 document.querySelector("#founder-cta")?.addEventListener("click", handleFounderCheckout);
 
 renderMonitoring();
-try {
-  const saved = JSON.parse(localStorage.getItem(auditContextKey) || "null");
-  if (saved) {
-    retrieveEntitlement(saved.final_url || saved.target_url).then((active) => {
-      paidVerified = active;
-      emailUnlocked = active;
-      render(saved);
-      setReportAccess(active);
-    });
+async function bootstrapPaidReport() {
+  const entitlement = await retrieveEntitlement();
+  if (!entitlement?.active) return;
+  const saved = (() => { try { return JSON.parse(localStorage.getItem(auditContextKey) || "null"); } catch { return null; } })();
+  const savedUrl = saved ? normalizeAuditUrl(saved.final_url || saved.target_url) : "";
+  if (saved && savedUrl === entitlement.website_url) {
+    paidVerified = true;
+    emailUnlocked = true;
+    render(saved);
+    setReportAccess(true);
+    return;
   }
-} catch { /* Ignore unavailable local storage. */ }
+  try {
+    paidVerified = true;
+    await runAudit(entitlement.website_url, { entitlementAlreadyVerified: true });
+  } catch { paidVerified = false; }
+}
+
+bootstrapPaidReport();
 registerAuditTool(runAudit, setStatus);
 captureAttribution();
