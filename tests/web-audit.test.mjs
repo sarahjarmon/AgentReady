@@ -150,6 +150,14 @@ test("session handoff is wired to the paid report bootstrap without trusting a b
   assert.doesNotMatch(app, /checkout_session_id.*website_url/);
 });
 
+test("paid handoff exposes only classified recovery and audit diagnostics", async () => {
+  const app = await (await import("node:fs/promises")).readFile(new URL("../web/app.js", import.meta.url), "utf8");
+  for (const code of ["HANDOFF_REQUEST_FAILED", "HANDOFF_HTTP_ERROR", "HANDOFF_INVALID_RESPONSE", "HANDOFF_INACTIVE", "HANDOFF_MISSING_WEBSITE", "PAID_RECOVERY_OK", "PAID_AUDIT_FAILED"]) assert.match(app, new RegExp(code));
+  assert.match(app, /Paid recovery diagnostic:/);
+  assert.match(app, /response\.status/);
+  assert.match(app, /showPaidRecoveryDiagnostic\("PAID_AUDIT_FAILED"\)/);
+});
+
 test("paid UI no longer uses the localStorage paid flag", async () => {
   const app = await (await import("node:fs/promises")).readFile(new URL("../web/app.js", import.meta.url), "utf8");
   const success = await (await import("node:fs/promises")).readFile(new URL("../web/success.js", import.meta.url), "utf8");

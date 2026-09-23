@@ -24,6 +24,7 @@ let currentAudit = null;
 let selectedAction = null;
 let emailUnlocked = false;
 let paidVerified = false;
+let paidRecoveryDiagnostic = null;
 const startFounderCheckout = createCheckoutGate(async (identity) => {
   const url = await createFounderCheckout(identity);
   trackConversion("checkout_started", { website_url: identity.website_url });
@@ -68,9 +69,20 @@ async function retrieveEntitlement() {
 async function recoverEntitlement(sessionId) {
   try {
     const response = await fetch(`/.netlify/functions/checkout-status?session_id=${encodeURIComponent(sessionId)}`, { credentials: "same-origin", headers: { accept: "application/json" } });
-    const result = await response.json();
-    return response.ok && result?.ok === true && result.active === true && typeof result.website_url === "string" ? result : null;
-  } catch { return false; }
+    if (!response.ok) return { entitlement: null, diagnostic: `HANDOFF_HTTP_ERROR:${response.status}` };
+    let result;
+    try { result = await response.json(); } catch { return { entitlement: null, diagnostic: "HANDOFF_INVALID_RESPONSE" }; }
+    if (result?.ok !== true) return { entitlement: null, diagnostic: "HANDOFF_INVALID_RESPONSE" };
+    if (result.active !== true) return { entitlement: null, diagnostic: "HANDOFF_INACTIVE" };
+    if (typeof result.website_url !== "string" || !result.website_url) return { entitlement: null, diagnostic: "HANDOFF_MISSING_WEBSITE" };
+    return { entitlement: result, diagnostic: "PAID_RECOVERY_OK" };
+  } catch { return { entitlement: null, diagnostic: "HANDOFF_REQUEST_FAILED" }; }
+}
+
+function showPaidRecoveryDiagnostic(code) {
+  paidRecoveryDiagnostic = code;
+  document.body.dataset.paidRecoveryDiagnostic = code;
+  showError(`Paid recovery diagnostic: ${code}`);
 }
 
 async function runAudit(url, { entitlementAlreadyVerified = false } = {}) {
@@ -239,8 +251,13 @@ document.querySelector("#founder-cta")?.addEventListener("click", handleFounderC
 renderMonitoring();
 async function bootstrapPaidReport() {
   const handoffSessionId = new URL(window.location.href).searchParams.get("checkout_session_id");
-  const entitlement = handoffSessionId ? await recoverEntitlement(handoffSessionId) : await retrieveEntitlement();
+  const recovery = handoffSessionId ? await recoverEntitlement(handoffSessionId) : { entitlement: await retrieveEntitlement(), diagnostic: null };
+  const entitlement = recovery.entitlement;
   if (handoffSessionId) window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.hash}`);
+  if (handoffSessionId) {
+    showPaidRecoveryDiagnostic(recovery.diagnostic);
+    if (recovery.diagnostic !== "PAID_RECOVERY_OK") return;
+  }
   if (!entitlement?.active) return;
   const saved = (() => { try { return JSON.parse(localStorage.getItem(auditContextKey) || "null"); } catch { return null; } })();
   const savedUrl = saved ? normalizeAuditUrl(saved.final_url || saved.target_url) : "";
@@ -254,7 +271,10 @@ async function bootstrapPaidReport() {
   try {
     paidVerified = true;
     await runAudit(entitlement.website_url, { entitlementAlreadyVerified: true });
-  } catch { paidVerified = false; }
+  } catch {
+    paidVerified = false;
+    showPaidRecoveryDiagnostic("PAID_AUDIT_FAILED");
+  }
 }
 
 bootstrapPaidReport();
