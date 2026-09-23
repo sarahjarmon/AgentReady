@@ -82,16 +82,20 @@ async function recoverEntitlement(sessionId) {
 function showPaidRecoveryDiagnostic(code) {
   paidRecoveryDiagnostic = code;
   document.body.dataset.paidRecoveryDiagnostic = code;
+  const trace = document.body.dataset.paidRecoveryTrace ? `${document.body.dataset.paidRecoveryTrace},${code}` : code;
+  document.body.dataset.paidRecoveryTrace = trace;
   showError(`Paid recovery diagnostic: ${code}`);
 }
 
 async function runAudit(url, { entitlementAlreadyVerified = false } = {}) {
+  if (entitlementAlreadyVerified) showPaidRecoveryDiagnostic("PAID_AUDIT_START");
   const normalizedUrl = normalizeAuditUrl(url);
   const response = await fetch("/.netlify/functions/audit", {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: normalizedUrl }),
   });
   const result = await response.json();
   if (!response.ok || result.status === "error") throw new Error(result.error || "The audit could not be completed.");
+  if (entitlementAlreadyVerified) showPaidRecoveryDiagnostic("PAID_AUDIT_RESPONSE_OK");
   if (!entitlementAlreadyVerified) {
     const entitlement = await retrieveEntitlement();
     paidVerified = Boolean(entitlement?.active && entitlement.website_url === normalizeAuditUrl(result.final_url || result.target_url || normalizedUrl));
@@ -102,6 +106,7 @@ async function runAudit(url, { entitlementAlreadyVerified = false } = {}) {
 }
 
 function render(result) {
+  if (paidRecoveryDiagnostic === "PAID_AUDIT_RESPONSE_OK" || paidRecoveryDiagnostic === "PAID_AUDIT_START") showPaidRecoveryDiagnostic("PAID_RENDER_START");
   currentAudit = result;
   localStorage.setItem(auditContextKey, JSON.stringify(result));
   emailUnlocked = false;
@@ -141,6 +146,7 @@ function render(result) {
   const groups = Object.entries(result.evidence).map(([group, evidence]) => `<section><h3>${esc(group)}</h3>${evidence.length ? `<ul>${evidence.map((item) => `<li><strong>${esc(item.label)}</strong><span>${esc(item.excerpt)}</span></li>`).join("")}</ul>` : "<p class=\"muted\">No supporting signal observed.</p>"}</section>`).join("");
   document.querySelector("#evidence-list").innerHTML = paidVerified ? groups : "";
   renderMonitoring();
+  if (paidRecoveryDiagnostic === "PAID_RENDER_START") showPaidRecoveryDiagnostic("PAID_RENDER_OK");
 }
 
 async function handleFounderCheckout(event) {
