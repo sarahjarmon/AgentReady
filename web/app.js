@@ -65,6 +65,14 @@ async function retrieveEntitlement() {
   } catch { return false; }
 }
 
+async function recoverEntitlement(sessionId) {
+  try {
+    const response = await fetch(`/.netlify/functions/checkout-status?session_id=${encodeURIComponent(sessionId)}`, { credentials: "same-origin", headers: { accept: "application/json" } });
+    const result = await response.json();
+    return response.ok && result?.ok === true && result.active === true && typeof result.website_url === "string" ? result : null;
+  } catch { return false; }
+}
+
 async function runAudit(url, { entitlementAlreadyVerified = false } = {}) {
   const normalizedUrl = normalizeAuditUrl(url);
   const response = await fetch("/.netlify/functions/audit", {
@@ -230,7 +238,9 @@ document.querySelector("#founder-cta")?.addEventListener("click", handleFounderC
 
 renderMonitoring();
 async function bootstrapPaidReport() {
-  const entitlement = await retrieveEntitlement();
+  const handoffSessionId = new URL(window.location.href).searchParams.get("checkout_session_id");
+  const entitlement = handoffSessionId ? await recoverEntitlement(handoffSessionId) : await retrieveEntitlement();
+  if (handoffSessionId) window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.hash}`);
   if (!entitlement?.active) return;
   const saved = (() => { try { return JSON.parse(localStorage.getItem(auditContextKey) || "null"); } catch { return null; } })();
   const savedUrl = saved ? normalizeAuditUrl(saved.final_url || saved.target_url) : "";

@@ -6,7 +6,7 @@ export default async (request, dependencies = {}) => {
     const sessionId = new URL(request.url).searchParams.get("session_id");
     const state = await checkoutActivationState(sessionId, dependencies);
     const headers = state.active ? { "set-cookie": entitlementCookieHeader(entitlementCookie(state.lead, state.lead.website_url, dependencies.env || process.env)) } : {};
-    return jsonResponse({ ok: true, active: state.active, pending: state.pending }, 200, headers);
+    return jsonResponse({ ok: true, active: state.active, pending: state.pending, ...(state.active ? { website_url: state.lead.website_url } : {}) }, 200, headers);
   } catch (error) {
     logBillingFailure(error, dependencies);
     if (error instanceof BillingError) return jsonResponse({ ok: false, error: error.message }, error.status);

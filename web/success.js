@@ -15,7 +15,8 @@ function render(result) {
   message.textContent = state.confirmed ? "Your subscription is confirmed. Your complete AI Readiness report, prioritized fixes and continuous monitoring are ready." : "Your subscription is confirmed. We’re preparing your complete AI Readiness report, prioritized fixes and continuous monitoring.";
   detail.textContent = state.confirmed ? "" : attempts >= 10 ? "Confirmation is still pending. Please refresh this page in a moment." : "";
   if (state.confirmed) {
-    viewPlan.outerHTML = '<a id="view-plan" class="founder-cta" href="/">View My Full Fix Plan →</a>';
+    const recoveryUrl = `/?checkout_session_id=${encodeURIComponent(sessionId)}`;
+    viewPlan.outerHTML = `<a id="view-plan" class="founder-cta" href="${recoveryUrl}">View My Full Fix Plan →</a>`;
   } else viewPlan.textContent = "We’re verifying your subscription...";
   return state.confirmed;
 }

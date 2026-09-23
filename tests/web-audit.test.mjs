@@ -4,6 +4,7 @@ import test from "node:test";
 import { auditPublicPage, createRendererFromEnv, EvidenceState, inspectHtml, isBlockedHostname, isPrivateIp, validatePublicUrl } from "../netlify/functions/lib/audit-core.mjs";
 import auditHandler from "../netlify/functions/audit.mjs";
 import leadHandler from "../netlify/functions/capture-lead.mjs";
+import checkoutStatusHandler from "../netlify/functions/checkout-status.mjs";
 import entitlementHandler from "../netlify/functions/entitlement-status.mjs";
 import { currentEntitlement, entitlementCookie, entitlementCookieHeader } from "../netlify/functions/lib/billing.mjs";
 import { aiReadinessScore, buildLeadPayload, primaryFinding, reportAccessState, submitLead } from "../web/commercial.js";
@@ -118,6 +119,35 @@ test("forged, expired, and website-mismatched entitlements fail closed", async (
   const mismatchedLead = { ...lead, website_url: "https://other.test/" };
   const response = await entitlementHandler(requestFor(valid), { env: entitlementTestEnv, fetchImpl: async () => new Response(JSON.stringify([mismatchedLead]), { status: 200 }) });
   assert.deepEqual(await response.json(), { ok: true, active: false });
+});
+
+test("checkout status returns only the verified website for an active session", async () => {
+  const lead = { id: "lead_paid", website_url: "https://example.test/services", stripe_subscription_id: "sub_paid", subscription_status: "active", founder_price_locked: true };
+  const calls = [];
+  const response = await checkoutStatusHandler(new Request("https://demo.test/.netlify/functions/checkout-status?session_id=cs_live_valid"), {
+    env: { ...entitlementTestEnv, STRIPE_SECRET_KEY: "server-only-stripe", STRIPE_FOUNDER_PRICE_ID: "price_founder" },
+    fetchImpl: async (url) => {
+      const href = String(url); calls.push(href);
+      if (href.includes("/v1/checkout/sessions/cs_live_valid")) return new Response(JSON.stringify({ mode: "subscription", payment_status: "paid", metadata: { agentready_lead_id: lead.id }, subscription: { id: "sub_paid", status: "active" } }), { status: 200 });
+      if (href.includes("/rest/v1/leads?")) return new Response(JSON.stringify([lead]), { status: 200 });
+      throw new Error(`Unexpected request ${href}`);
+    },
+  });
+  assert.deepEqual(await response.json(), { ok: true, active: true, pending: false, website_url: lead.website_url });
+  assert.ok(response.headers.get("set-cookie")?.includes("agentready_entitlement="));
+  assert.equal(calls.filter((url) => url.includes("/v1/checkout/sessions/")).length, 1);
+});
+
+test("session handoff is wired to the paid report bootstrap without trusting a browser website", async () => {
+  const [success, app] = await Promise.all([
+    (await import("node:fs/promises")).readFile(new URL("../web/success.js", import.meta.url), "utf8"),
+    (await import("node:fs/promises")).readFile(new URL("../web/app.js", import.meta.url), "utf8"),
+  ]);
+  assert.match(success, /checkout_session_id=/);
+  assert.match(app, /recoverEntitlement\(handoffSessionId\)/);
+  assert.match(app, /history\.replaceState/);
+  assert.match(app, /runAudit\(entitlement\.website_url, \{ entitlementAlreadyVerified: true \}\)/);
+  assert.doesNotMatch(app, /checkout_session_id.*website_url/);
 });
 
 test("paid UI no longer uses the localStorage paid flag", async () => {
