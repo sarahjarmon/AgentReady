@@ -147,6 +147,17 @@ test("valid lead submission is normalized and upserted only by the server-side F
   assert.equal(received.payload[0].website_url, "https://example.test/services");
 });
 
+test("paid access keeps the report capture and Founder offer hidden", async () => {
+  const [styles, app] = await Promise.all([
+    (await import("node:fs/promises")).readFile(new URL("../web/styles.css", import.meta.url), "utf8"),
+    (await import("node:fs/promises")).readFile(new URL("../web/app.js", import.meta.url), "utf8"),
+  ]);
+  assert.match(styles, /\[hidden\]\s*\{\s*display:\s*none\s*!important\s*\}/);
+  assert.match(app, /founderOffer\.hidden = paidVerified \|\| !emailSubmitted/);
+  assert.match(app, /reportCapture\.hidden = paidVerified/);
+  assert.match(app, /fullReport\.hidden = !paidVerified/);
+});
+
 test("legacy server-only variable remains a backend-only fallback", async () => {
   let receivedKey;
   const response = await leadHandler(leadRequest(validLead()), {
